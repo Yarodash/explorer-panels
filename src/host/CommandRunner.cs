@@ -50,11 +50,12 @@ static class CommandRunner
             RedirectStandardInput = true,
         };
         // чтобы вывод серверов приходил сразу, в UTF-8 и без управляющих символов цвета
-        info.Environment["PYTHONUNBUFFERED"] = "1";
-        info.Environment["PYTHONIOENCODING"] = "utf-8";
-        info.Environment["NO_COLOR"] = "1";
-        info.Environment["FORCE_COLOR"] = "0";
+        // (если переменная уже задана — в panel.json или унаследована, — её не трогаем)
         foreach (var (name, value) in env) info.Environment[name] = value;
+        info.Environment.TryAdd("PYTHONUNBUFFERED", "1");
+        info.Environment.TryAdd("PYTHONIOENCODING", "utf-8");
+        info.Environment.TryAdd("NO_COLOR", "1");
+        info.Environment.TryAdd("FORCE_COLOR", "0");
         return info;
     }
 
@@ -86,7 +87,8 @@ static class CommandRunner
         if (length > 0) onLine(Decode(line, length));
     }
 
-    static (Process Process, Task Output) StartCore(string command, string cwd, IReadOnlyDictionary<string, string> env, Action<string> onLine)
+    /// <summary>Запускает команду; вторая часть результата завершается, когда весь вывод дочитан.</summary>
+    internal static (Process Process, Task Output) StartCore(string command, string cwd, IReadOnlyDictionary<string, string> env, Action<string> onLine)
     {
         var process = new Process { StartInfo = StartInfo(command, cwd, env), EnableRaisingEvents = true };
         process.Start();

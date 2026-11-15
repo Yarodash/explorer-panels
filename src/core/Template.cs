@@ -10,7 +10,7 @@ public static partial class Template
 
     // В команду подставляется только такое значение. Пробелы, кавычки, &, |, %, $ и прочее запрещены:
     // иначе название ветки или присланный снаружи текст мог бы стать посторонней командой.
-    [GeneratedRegex(@"^[A-Za-z0-9._\-/:@+]*$")]
+    [GeneratedRegex(@"\A[A-Za-z0-9._\-/:@+]*\z")] // \z, а не $: иначе прошло бы значение с переводом строки в конце
     private static partial Regex SafeForCommand();
 
     public const string SafeCharactersHint = "letters, digits and . _ - / : @ +";

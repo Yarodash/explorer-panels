@@ -127,6 +127,15 @@ try {
   Check "a crashed server becomes failed" (Wait-Until { (ApiStatus) -eq "failed" } 15000) (ApiStatus)
   [void](Invoke-PanelClick $explorer '[data-action=start]' $data)
   Check "Start again recovers it" (Wait-Until { (ApiStatus) -eq "running" } 30000) (ApiStatus)
+  # 9b. серверы переживают закрытие программы (обновление, выход из трея, сбой)
+  $ctx.Host | Stop-Process -Force
+  Start-Sleep -Milliseconds 1500
+  function Answers { try { (Invoke-WebRequest "http://127.0.0.1:$port/" -TimeoutSec 4 -UseBasicParsing).StatusCode -eq 200 } catch { $false } }
+  Check "a server keeps answering after the host is killed" ((Answers) -and (Answers) -and (Answers))
+  $ctx.Host = Start-Process $ctx.HostExe -PassThru
+  Check "the restarted host shows the panel again" (Wait-Until { Test-PanelVisible $explorer } 20000)
+  Check "the restarted host finds the running server" (Wait-Until { (ApiStatus) -eq "running" } 20000) (ApiStatus)
+
   [void](Invoke-PanelClick $explorer '[data-action=stop]' $data)
   Check "Stop: service becomes stopped" (Wait-Until { (ApiStatus) -eq "stopped" } 20000) (ApiStatus)
   Check "Stop: the server no longer listens" (Wait-Until { -not (Listening) } 5000)

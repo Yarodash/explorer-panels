@@ -35,10 +35,25 @@ sealed class RotatingLog(string file, long maxBytes = 5_000_000)
             lock (_gate)
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                var bytes = System.Text.Encoding.UTF8.GetBytes(text);
                 var info = new FileInfo(file);
-                if (info.Exists && info.Length + System.Text.Encoding.UTF8.GetByteCount(text) > maxBytes)
-                    System.IO.File.Move(file, file + ".1", overwrite: true);
-                System.IO.File.AppendAllText(file, text);
+                if (info.Exists && info.Length + bytes.Length > maxBytes)
+                {
+                    try { System.IO.File.Move(file, file + ".1", overwrite: true); }
+                    catch (IOException) { } // файл сейчас пишет другой процесс — обрежем в следующий раз
+                }
+                // В один лог пишут несколько процессов: сама программа и посредники серверов. Поэтому файл
+                // открывается с общим доступом, а при столкновении запись повторяется.
+                for (int attempt = 0; ; attempt++)
+                {
+                    try
+                    {
+                        using var stream = new FileStream(file, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
+                        stream.Write(bytes);
+                        break;
+                    }
+                    catch (IOException) when (attempt < 5) { Thread.Sleep(15); }
+                }
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

@@ -43,7 +43,7 @@ static class Commands
 
             case "check":
             {
-                var folder = Folder(args, out _);
+                var folder = Folder(command, args, out _);
                 using var host = Connect();
                 StatusResponse? status = null;
                 try
@@ -57,7 +57,7 @@ static class Commands
             case "trust" or "untrust":
             {
                 // работает и без запущенной программы: она сама замечает изменение файла разрешений
-                var folder = Folder(args, out _);
+                var folder = Folder(command, args, out _);
                 if (ProjectLocator.FindRoot(folder) is not { } root) return NoPanel(folder);
                 new TrustStore(AppPaths.TrustFile).Set(root, command == "trust" ? true : null);
                 Console.WriteLine(command == "trust" ? $"allowed: {root}" : $"forgotten: {root} (the panel will ask again)");
@@ -66,7 +66,7 @@ static class Commands
 
             case "status":
             {
-                var folder = Folder(args, out _);
+                var folder = Folder(command, args, out _);
                 using var host = Connect();
                 if (host == null) return HostMissing();
                 var status = host.StatusAsync(folder).GetAwaiter().GetResult();
@@ -76,20 +76,20 @@ static class Commands
 
             case "start" or "stop" or "restart":
             {
-                var folder = Folder(args, out var rest);
+                var folder = Folder(command, args, out var rest);
                 return Do(folder, rest.Count > 0 ? $"{command}:{rest[0]}" : command);
             }
 
             case "do":
             {
-                var folder = Folder(args, out var rest);
+                var folder = Folder(command, args, out var rest);
                 if (rest.Count != 1) return Wrong("usage: explorer-panel do <action> [folder]");
                 return Do(folder, rest[0]);
             }
 
             case "set":
             {
-                var folder = Folder(args, out var rest);
+                var folder = Folder(command, args, out var rest);
                 var values = new JsonObject();
                 foreach (var argument in rest)
                 {
@@ -104,7 +104,7 @@ static class Commands
 
             case "logs":
             {
-                var folder = Folder(args, out _);
+                var folder = Folder(command, args, out _);
                 if (ProjectLocator.FindRoot(folder) is not { } root) return NoPanel(folder);
                 var file = Path.Combine(root, PanelLoader.DirName, "logs", "services.log");
                 Console.WriteLine(file);
@@ -124,27 +124,68 @@ static class Commands
 
     // ───────── разбор аргументов ─────────
 
+    static string Folder(string command, string[] args, out List<string> rest) =>
+        SplitArgs(command, args, Directory.GetCurrentDirectory(), out rest);
+
+    // сколько обязательных и необязательных слов у команды до папки
+    static (int Required, int Optional) Words(string command) => command switch
+    {
+        "do" => (1, 0),
+        "start" or "stop" or "restart" => (0, 1),
+        "set" => (0, int.MaxValue),
+        _ => (0, 0),
+    };
+
+    // Похоже ли слово на путь, а не на имя сервера: имена состоят из букв, цифр, "_" и "-".
+    static bool LooksLikePath(string word) => word.IndexOfAny(['.', '\\', '/', ':']) >= 0;
+
     /// <summary>
-    /// Папка проекта из аргументов: <c>--folder путь</c> либо последний аргумент, если это существующая папка;
-    /// иначе текущая. Остальные аргументы возвращаются в <paramref name="rest"/>.
+    /// Отделяет папку проекта от остальных аргументов. Папка задаётся <c>--folder путь</c> либо последним
+    /// аргументом сверх слов самой команды; иначе это <paramref name="cwd"/>.
+    /// Имя действия или сервера никогда не принимается за папку, даже если папка с таким именем существует:
+    /// <c>do tests</c> — это действие tests, а не папка tests.
     /// </summary>
-    static string Folder(string[] args, out List<string> rest)
+    public static string SplitArgs(string command, string[] args, string cwd, out List<string> rest)
     {
         rest = args.ToList();
+        string Full(string path) => Path.GetFullPath(Path.Combine(cwd, path));
+
         int option = rest.IndexOf("--folder");
         if (option >= 0 && option + 1 < rest.Count)
         {
             var given = rest[option + 1];
             rest.RemoveRange(option, 2);
-            return Path.GetFullPath(given);
+            return Full(given);
         }
-        if (rest.Count > 0 && !rest[^1].Contains('=') && Directory.Exists(rest[^1]))
+
+        var (required, optional) = Words(command);
+        if (command == "set")
+        {
+            // значения — это имя=значение; последнее слово без "=" — папка
+            if (rest.Count > 0 && !rest[^1].Contains('='))
+            {
+                var given = rest[^1];
+                rest.RemoveAt(rest.Count - 1);
+                return Full(given);
+            }
+            return cwd;
+        }
+
+        // лишнее слово сверх всех слов команды — папка
+        if (rest.Count > required + optional)
         {
             var given = rest[^1];
             rest.RemoveAt(rest.Count - 1);
-            return Path.GetFullPath(given);
+            return Full(given);
         }
-        return Directory.GetCurrentDirectory();
+        // у start/stop/restart единственное слово — имя сервера, если только оно не выглядит как путь
+        if (optional == 1 && rest.Count == required + 1 && LooksLikePath(rest[^1]))
+        {
+            var given = rest[^1];
+            rest.RemoveAt(rest.Count - 1);
+            return Full(given);
+        }
+        return cwd;
     }
 
     /// <summary>

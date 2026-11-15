@@ -26,8 +26,6 @@ sealed class Project : IDisposable
     readonly Dictionary<string, string> _progress = [];     // действие -> "running" | "ok" | "failed"
     readonly Dictionary<string, JsonArray> _slots = [];     // значение -> виджеты, которые вернул его обработчик
     readonly Dictionary<string, DateTime> _handlerDue = []; // значение -> когда запускать обработчик снова
-    readonly System.Threading.Timer _reloadTimer;
-    FileSystemWatcher? _watcher;
     DateTime _fileTime;
     bool _active, _prepared;
     int _refreshing;
@@ -59,10 +57,7 @@ sealed class Project : IDisposable
         _values.Changed += RaiseChanged;
         LogFile = Path.Combine(Root, PanelLoader.DirName, "logs", "services.log");
         _log = new RotatingLog(LogFile);
-        _reloadTimer = new System.Threading.Timer(_ => Reload(), null, Timeout.Infinite, Timeout.Infinite);
-
         Reload();
-        Watch();
     }
 
     void RaiseChanged() => Changed?.Invoke();
@@ -87,7 +82,11 @@ sealed class Project : IDisposable
         RaiseChanged();
     }
 
-    /// <summary>Перечитывает файл, если он изменился с прошлого раза (страховка на случай, если слежение за папкой не сработало).</summary>
+    /// <summary>
+    /// Перечитывает файл, если он изменился с прошлого раза. Вызывается при каждом обходе окон Проводника
+    /// (раз в секунду для видимых папок). Отдельного слежения за папкой нет намеренно: оно держало бы папку
+    /// проекта открытой, и её нельзя было бы переименовать, пока программа работает.
+    /// </summary>
     public void ReloadIfChanged()
     {
         var file = PanelLoader.PanelFile(Root);
@@ -121,30 +120,6 @@ sealed class Project : IDisposable
         }
         foreach (var gone in _slots.Keys.Except(config.Values.Select(v => v.Name)).ToList()) _slots.Remove(gone);
         _handlerDue.Clear(); // после изменения файла обработчики запускаются заново
-    }
-
-    void Watch()
-    {
-        try
-        {
-            var folder = Path.Combine(Root, PanelLoader.DirName);
-            if (!Directory.Exists(folder)) return;
-            _watcher = new FileSystemWatcher(folder) { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size };
-            FileSystemEventHandler onChange = (_, e) =>
-            {
-                // редакторы пишут файл в несколько приёмов — ждём, пока запись закончится
-                if (string.Equals(e.Name, PanelLoader.FileName, StringComparison.OrdinalIgnoreCase)) _reloadTimer.Change(150, Timeout.Infinite);
-            };
-            _watcher.Changed += onChange;
-            _watcher.Created += onChange;
-            _watcher.Deleted += onChange;
-            _watcher.Renamed += (_, _) => _reloadTimer.Change(150, Timeout.Infinite);
-            _watcher.EnableRaisingEvents = true;
-        }
-        catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException)
-        {
-            Log.Write($"cannot watch {Root}: {ex.Message}"); // останется проверка по времени изменения файла
-        }
     }
 
     // ───────── состояние ─────────
@@ -333,7 +308,7 @@ sealed class Project : IDisposable
             if (verb is BuiltinActions.Start or BuiltinActions.Restart)
                 foreach (var target in targets)
                 {
-                    var started = target.Start(Value, Prepare);
+                    var started = await target.StartAsync(Value, Prepare);
                     if (!started.Ok) error ??= $"{target.Def.Name}: {started.Error}";
                 }
             return await Finish(action, error == null ? new ApiResult(true) : new ApiResult(false, error));
@@ -386,7 +361,7 @@ sealed class Project : IDisposable
         {
             await runner.RefreshAsync(allowCommands: true);
             if (runner.Current.Status == Core.ServiceStatus.Running) continue;
-            var started = runner.Start(value, Prepare);
+            var started = await runner.StartAsync(value, Prepare);
             if (!started.Ok) return $"service \"{runner.Def.Name}\" did not start: {started.Error}";
         }
 
@@ -407,6 +382,9 @@ sealed class Project : IDisposable
     /// <summary>Проверяет серверы и запускает обработчики значений, которым пришло время.</summary>
     public async Task RefreshAsync()
     {
+        // Пока папка не разрешена, из неё ничего не выполняется — в том числе запросы по её проверочным
+        // адресам: распакованный архив не должен заставлять программу обращаться в сеть.
+        if (Trusted != true) return;
         if (Interlocked.Exchange(ref _refreshing, 1) == 1) return; // предыдущий обход ещё идёт
         try
         {
@@ -466,8 +444,7 @@ sealed class Project : IDisposable
 
     public void Dispose()
     {
-        _watcher?.Dispose();
-        _reloadTimer.Dispose();
+        // проект не держит открытых файлов и папок; серверы при закрытии программы продолжают работать
     }
 }
 

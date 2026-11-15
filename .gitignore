@@ -8,3 +8,4 @@ _spike/
 .vs/
 *.user
 **/.explorer_components/logs/
+__pycache__/

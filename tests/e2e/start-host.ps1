@@ -29,4 +29,4 @@ $env:EXPLORER_PANEL_UI = $ui
 $env:EXPLORER_PANEL_ONLY_UNDER = [IO.Path]::GetFullPath($Under)
 $process = Start-Process $hostExe -PassThru
 
-[pscustomobject]@{ Data = $data; Host = $process; Cli = $cliExe }
+[pscustomobject]@{ Data = $data; Host = $process; Cli = $cliExe; HostExe = $hostExe }

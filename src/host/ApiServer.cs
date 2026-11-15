@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -14,20 +15,29 @@ interface IHostApi
     StatusResponse Status(string folder);
     ApiResult Set(string folder, JsonObject values);
     Task<ApiResult> Do(string folder, string action);
-    ApiResult Trust(string folder, bool? state);
     ApiResult Reload(string folder);
 }
 
 /// <summary>
 /// Местный интерфейс: по нему с программой говорят команда <c>explorer-panel</c> и внешние программы
 /// (например, сервер проекта, который хочет мгновенно обновить свой статус в панели).
-/// Слушает только этот компьютер и требует особый заголовок — запрос со страницы в браузере его не пройдёт.
+///
+/// Кто может им пользоваться:
+///   * только этот компьютер — программа слушает адрес 127.0.0.1;
+///   * только тот, кто знает ключ. Ключ случайный, создаётся при каждом запуске и лежит в host.json в профиле
+///     пользователя, так что другой пользователь компьютера его не прочитает;
+///   * не страницы в браузере: запрос с заголовком Origin или адресованный другому имени сайта отклоняется
+///     (второе защищает от сайта, чьё имя перенаправили на 127.0.0.1).
+/// Разрешить папку через этот интерфейс нельзя — только файлом разрешений в профиле.
 /// </summary>
 sealed class ApiServer(IHostApi api, string hostInfoFile, int preferredPort = ApiProtocol.DefaultPort) : IDisposable
 {
     HttpListener? _listener;
 
     public int Port { get; private set; }
+
+    /// <summary>Ключ, который должен быть в заголовке каждого запроса.</summary>
+    public string Token { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant();
 
     public void Start()
     {
@@ -48,7 +58,7 @@ sealed class ApiServer(IHostApi api, string hostInfoFile, int preferredPort = Ap
 
         // по этому файлу программу находит команда explorer-panel
         Directory.CreateDirectory(Path.GetDirectoryName(hostInfoFile)!);
-        File.WriteAllText(hostInfoFile, JsonSerializer.Serialize(new HostInfo(Port, Environment.ProcessId), ApiProtocol.Json));
+        File.WriteAllText(hostInfoFile, JsonSerializer.Serialize(new HostInfo(Port, Environment.ProcessId, Token), ApiProtocol.Json));
 
         _ = Task.Run(Loop);
     }
@@ -65,14 +75,26 @@ sealed class ApiServer(IHostApi api, string hostInfoFile, int preferredPort = Ap
         }
     }
 
+    // Почему запрос нельзя выполнять; null — можно.
+    string? Refusal(HttpListenerRequest request)
+    {
+        var token = request.Headers[ApiProtocol.Header];
+        if (token == null || !CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(token), Encoding.UTF8.GetBytes(Token)))
+            return $"missing or wrong {ApiProtocol.Header} header (the key is in host.json)";
+        if (request.Headers["Origin"] != null) return "requests from web pages are not accepted";
+        var host = request.Headers["Host"];
+        if (host != $"127.0.0.1:{Port}" && host != $"localhost:{Port}") return "the request is addressed to another host name";
+        return null;
+    }
+
     async Task Handle(HttpListenerContext context)
     {
         var request = context.Request;
         try
         {
-            if (request.Headers[ApiProtocol.Header] == null)
+            if (Refusal(request) is { } refusal)
             {
-                await Write(context, HttpStatusCode.Forbidden, new ApiResult(false, $"missing {ApiProtocol.Header} header"));
+                await Write(context, HttpStatusCode.Forbidden, new ApiResult(false, refusal));
                 return;
             }
 
@@ -96,11 +118,6 @@ sealed class ApiServer(IHostApi api, string hostInfoFile, int preferredPort = Ap
                 case ("POST", "/v1/do"):
                     var run = await Read<DoRequest>(request);
                     await Write(context, HttpStatusCode.OK, await api.Do(run.Folder, run.Action));
-                    break;
-
-                case ("POST", "/v1/trust"):
-                    var trust = await Read<TrustRequest>(request);
-                    await Write(context, HttpStatusCode.OK, api.Trust(trust.Folder, trust.Trusted));
                     break;
 
                 case ("POST", "/v1/reload"):
@@ -179,14 +196,6 @@ sealed class HostApi(HostContext host) : IHostApi
 
     public Task<ApiResult> Do(string folder, string action) =>
         host.Projects.ForFolder(folder) is { } project ? project.DoAsync(action) : Task.FromResult(NoPanel(folder));
-
-    public ApiResult Trust(string folder, bool? state)
-    {
-        if (ProjectLocator.FindRoot(folder) is not { } root) return NoPanel(folder);
-        host.Trust.Set(root, state);
-        host.RunOnUi(host.Rescan); // панель должна появиться или исчезнуть сразу
-        return new ApiResult(true);
-    }
 
     public ApiResult Reload(string folder)
     {

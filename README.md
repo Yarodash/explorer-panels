@@ -108,15 +108,16 @@ Any program can change what the panel shows, instantly:
 explorer-panel set deploy=running
 ```
 
-or with a request to the local interface (default port 47631, the actual one is in
-`%LOCALAPPDATA%\ExplorerPanels\host.json`):
+or with a request to the local interface. Its port and access key are in
+`%LOCALAPPDATA%\ExplorerPanels\host.json`, readable only by you:
 
 ```python
-import json, urllib.request
+import json, os, urllib.request
+host = json.load(open(os.path.expandvars(r"%LOCALAPPDATA%\ExplorerPanels\host.json")))
 urllib.request.urlopen(urllib.request.Request(
-    "http://127.0.0.1:47631/v1/set",
+    f"http://127.0.0.1:{host['port']}/v1/set",
     data=json.dumps({"folder": r"D:\my-project", "values": {"deploy": "running"}}).encode(),
-    headers={"Content-Type": "application/json", "X-Explorer-Panel": "1"}))
+    headers={"Content-Type": "application/json", "X-Explorer-Panel": host["token"]}))
 ```
 
 A `status` widget can follow such a value: `{ "type": "status", "value": "deploy" }`.
@@ -124,7 +125,9 @@ A `status` widget can follow such a value: `{ "type": "status", "value": "deploy
 ## Safety
 
 - A panel can run commands, so a folder must be allowed first: one click on the question the panel shows, or
-  `explorer-panel trust`. Until then nothing from the folder runs.
+  `explorer-panel trust`. Until then nothing from the folder runs and no address from it is contacted.
+- The local interface listens on this computer only and needs a random key that is stored in your user
+  profile; requests from web pages are refused. A folder cannot be allowed through it.
 - Stop only ever stops processes of the project: those the panel started, or those running from inside the
   project folder. Another program on the same port is reported as a problem and left alone.
 - A value is substituted into a command only if it consists of letters, digits and `. _ - / : @ +`.

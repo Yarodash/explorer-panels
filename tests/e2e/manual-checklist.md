@@ -11,8 +11,11 @@ folder with a panel (for example `examples/fastapi-react`).
 - [ ] Clicking a file right next to the panel selects the file (the click is not eaten by the panel).
 - [ ] Clicking a file *under the transparent area above the panel* selects the file.
 - [ ] The calendar and the menu open above the panel, can be clicked, and close on a click elsewhere.
-- [ ] Clicking a panel button while another program's window is in front runs the action and brings
-      Explorer forward.
+- [ ] Clicking a panel button while another program's window is in front runs the action and leaves that
+      program in front (the panel never takes the foreground from another program).
+- [ ] After clicking a panel button in an active Explorer window, typing and arrow keys still go to the file
+      list (focus is handed back).
+- [ ] A menu stays open after the press, closes when you click a file in Explorer, and closes on Escape.
 
 ## Feel
 
@@ -35,5 +38,8 @@ folder with a panel (for example `examples/fastapi-react`).
 
 - [ ] Sign out and in: the tray icon is there; panels appear.
 - [ ] Restart Explorer (Task Manager → Windows Explorer → Restart): panels come back within a few seconds.
-- [ ] Tray menu: pause hides all panels; allowed and blocked folders are listed; exit closes the program and
-      leaves started servers running.
+- [ ] Tray: the icon is green when panels are on and gray when off; the tooltip shows the counts; the menu item
+      and a double-click turn panels off and on; the choice survives signing out.
+- [ ] Tray menu: allowed and blocked folders are listed; exit closes the program and leaves started servers
+      running and answering.
+- [ ] Rename a project folder that has a panel while the program runs: Windows allows it.

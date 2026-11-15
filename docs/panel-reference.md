@@ -33,7 +33,7 @@ action, Logs. So the smallest useful file is just `services`.
 Everywhere a command is given the key is `run`.
 
 - Commands run through `cmd.exe /c`, exactly as if typed into a Command Prompt: pipes, `&&`, quotes and
-  `.cmd` shims such as `npm` work.
+  `.cmd` shims such as `npm` work. A command is one line; join several with `&&`.
 - The working folder is the **project root** (the folder that contains `.explorer_components`) — for services,
   actions and value handlers alike. `cwd` selects another folder, relative to the project root.
 - `env` adds environment variables: `{ "env": { "DEBUG": "1" } }`.
@@ -84,7 +84,8 @@ Details worth knowing:
   with the program's name. The panel never ends such a process.
 - A start command that exits with code 0 (a launcher like `docker compose up -d`) is not a failure; the status
   then follows `health` only, so give such services both `health` and `stop`.
-- Services keep running when the background program exits or is updated.
+- Services keep running when the background program exits or is updated; when it starts again it finds them.
+- Until the folder is allowed, `health` addresses are not contacted.
 
 ## `actions`
 
@@ -155,7 +156,8 @@ Handler output:
 `{name}` is replaced by the current value `name`:
 
 - in `text`, `tooltip` and `label` — as is; an unknown name becomes empty;
-- in `open` — encoded as part of an address;
+- in `open` — encoded as part of an address when the target is an `http(s)` address; inserted as is when it
+  is a file or folder;
 - in `run` — only if the value consists of letters, digits and `. _ - / : @ +`. Otherwise the command is not
   run and the reason is written to the log. This keeps a branch name or pushed text from becoming a command.
 

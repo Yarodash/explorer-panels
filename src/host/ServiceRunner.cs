@@ -21,9 +21,14 @@ sealed class ServiceRunner
     readonly StateFile _state;
     readonly object _gate = new();
 
+    // Запуск и остановка выполняются строго по очереди. Иначе быстрый двойной щелчок по «перезапустить»
+    // мог оставить процесс без присмотра: остановка, начатая раньше, «забывала» процесс, запущенный позже.
+    readonly SemaphoreSlim _operation = new(1, 1);
+
     // процесс, который запустила панель: номер и время запуска (по ним он узнаётся и после перезапуска программы)
     int _pid;
     long _pidStartTicks;
+    bool _watchingExit;    // у нас есть событие о завершении этого процесса (после перезапуска программы его нет)
 
     bool _wantRunning;     // нажали «запустить» и с тех пор не нажимали «выключить»
     int? _exitCode;        // с каким кодом завершился запущенный панелью процесс
@@ -81,7 +86,14 @@ sealed class ServiceRunner
 
     /// <param name="values">Значения для подстановки <c>{имя}</c> в команду.</param>
     /// <param name="prepare">Вызывается перед первым запуском команды (создаёт служебные файлы проекта).</param>
-    public ApiResult Start(Func<string, string?> values, Action prepare)
+    public async Task<ApiResult> StartAsync(Func<string, string?> values, Action prepare)
+    {
+        await _operation.WaitAsync().ConfigureAwait(false);
+        try { return Start(values, prepare); }
+        finally { _operation.Release(); }
+    }
+
+    ApiResult Start(Func<string, string?> values, Action prepare)
     {
         ApiResult result = new(true);
         lock (_gate)
@@ -112,10 +124,11 @@ sealed class ServiceRunner
                 {
                     prepare();
                     _log.Append(Def.Name, $"--- start: {command}  (in {Cwd})");
-                    var process = CommandRunner.Start(command, Cwd, Def.Env, line => _log.Append(Def.Name, line));
+                    var process = Pump.Start(command, Cwd, Def.Env, _log.File, Def.Name);
                     _pid = process.Id;
                     try { _pidStartTicks = process.StartTime.ToUniversalTime().Ticks; }
                     catch (InvalidOperationException) { _pidStartTicks = 0; } // уже завершился
+                    _watchingExit = true;
                     SaveTracked();
                     process.Exited += (_, _) => OnExited(process);
                     if (process.HasExited) OnExited(process);
@@ -141,24 +154,34 @@ sealed class ServiceRunner
         lock (_gate)
         {
             if (process.Id != _pid || _exitCode != null) return; // это событие от прежнего запуска или уже учтено
-            _exitCode = code;
-            _exitedAt = DateTime.UtcNow;
-            if (code != 0) _healthy = false; // упавший сервер не «работает» ни секунды дольше
-            _misses = 1;                     // и одной неудачной проверки теперь достаточно
-            _nextCheck = default;
+            NoteExit(code);
         }
-        _log.Append(Def.Name, $"--- exited with code {code}");
         Recompute();
+    }
+
+    // вызывается под _gate
+    void NoteExit(int code)
+    {
+        _exitCode = code;
+        _exitedAt = DateTime.UtcNow;
+        if (code != 0) _healthy = false; // упавший сервер не «работает» ни секунды дольше
+        _misses = 1;                     // и одной неудачной проверки теперь достаточно
+        _nextCheck = default;
     }
 
     public async Task StopAsync(Func<string, string?> values)
     {
-        int pid;
+        await _operation.WaitAsync().ConfigureAwait(false);
+        try { await Stop(values).ConfigureAwait(false); }
+        finally { _operation.Release(); }
+    }
+
+    async Task Stop(Func<string, string?> values)
+    {
         lock (_gate)
         {
             _wantRunning = false;
             _startError = null;
-            pid = OwnAlive() ? _pid : 0;
         }
 
         if (Def.Stop is { } stop)
@@ -167,12 +190,16 @@ sealed class ServiceRunner
             if (Template.TryFillCommand(stop, values, out var command, out var error))
             {
                 _log.Append(Def.Name, "--- stop: " + command);
-                var result = await CommandRunner.RunAsync(command, Cwd, Def.Env, TimeSpan.FromMinutes(2));
+                var result = await CommandRunner.RunAsync(command, Cwd, Def.Env, TimeSpan.FromMinutes(2)).ConfigureAwait(false);
                 foreach (var line in result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)) _log.Append(Def.Name, line.TrimEnd());
             }
             else _log.Append(Def.Name, "--- cannot run the stop command: " + error);
         }
 
+        // Номер процесса берём только сейчас и проверяем время его запуска: пока шла команда остановки,
+        // процесс мог завершиться, а его номер — достаться постороннему процессу.
+        int pid;
+        lock (_gate) pid = OwnAlive() ? _pid : 0;
         if (pid != 0)
         {
             _log.Append(Def.Name, "--- stopping");
@@ -194,6 +221,7 @@ sealed class ServiceRunner
         {
             _pid = 0;
             _pidStartTicks = 0;
+            _watchingExit = false;
             _exitCode = null;
             _healthy = false;
             _misses = 0;
@@ -223,9 +251,9 @@ sealed class ServiceRunner
         if (due)
         {
             bool? healthy = null;
-            if (Def.Health?.Url is { } url) healthy = await RespondsAsync(url);
+            if (Def.Health?.Url is { } url) healthy = await RespondsAsync(url).ConfigureAwait(false);
             else if (Def.Health?.Run is { } command && allowCommands)
-                healthy = (await CommandRunner.RunAsync(command, Cwd, Def.Env, TimeSpan.FromSeconds(15))).ExitCode == 0;
+                healthy = (await CommandRunner.RunAsync(command, Cwd, Def.Env, TimeSpan.FromSeconds(15)).ConfigureAwait(false)).ExitCode == 0;
             var owner = ResolvePortOwner();
 
             lock (_gate)
@@ -255,6 +283,10 @@ sealed class ServiceRunner
         lock (_gate)
         {
             bool own = OwnAlive();
+            // Сервер, запущенный до перезапуска программы, не сообщит о своём завершении событием —
+            // замечаем его исчезновение сами, иначе упавший сервер показывался бы как «не запущен».
+            if (!own && _pid != 0 && !_watchingExit && _exitCode == null) NoteExit(-1);
+
             var observation = new ServiceObservation(
                 HasHealth: Def.Health != null, Healthy: _healthy, OwnProcessAlive: own,
                 ExitCode: own ? null : _exitCode, SecondsSinceExit: own ? 0 : (DateTime.UtcNow - _exitedAt).TotalSeconds,
@@ -282,15 +314,15 @@ sealed class ServiceRunner
         {
             try
             {
-                using var response = await Http.GetAsync(candidate, HttpCompletionOption.ResponseHeadersRead);
+                using var response = await Http.GetAsync(candidate, HttpCompletionOption.ResponseHeadersRead).ConfigureAwait(false);
                 return (int)response.StatusCode < 500;
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or IOException) { return false; }
         }).ToList();
         while (attempts.Count > 0)
         {
-            var done = await Task.WhenAny(attempts);
-            if (await done) return true;
+            var done = await Task.WhenAny(attempts).ConfigureAwait(false);
+            if (await done.ConfigureAwait(false)) return true;
             attempts.Remove(done);
         }
         return false;
@@ -336,5 +368,64 @@ sealed class ServiceRunner
         if (own != 0 && (pid == own || ProcessInfo.ParentChain(pid, 12).Contains(own))) return true;
         var cwd = ProcessInfo.WorkingDirectory(pid);
         return cwd != null && ProjectLocator.Applies(_root, cwd, "tree");
+    }
+}
+
+/// <summary>
+/// Посредник между сервером и его логом — отдельный процесс (эта же программа с ключом <c>--pump</c>).
+///
+/// Зачем он нужен: вывод сервера кто-то должен читать. Если бы его читала сама фоновая программа, то при её
+/// закрытии (обновление, выход из трея, сбой) сервер потерял бы, куда писать, и перестал нормально работать.
+/// Посредник живёт столько же, сколько сервер, и от фоновой программы не зависит.
+/// </summary>
+static class Pump
+{
+    public const string Switch = "--pump";
+
+    static string Exe => Path.Combine(AppContext.BaseDirectory, "explorer-panel-host.exe");
+
+    /// <summary>Запускает команду под присмотром посредника и возвращает процесс посредника.</summary>
+    public static Process Start(string command, string cwd, IReadOnlyDictionary<string, string> env, string logFile, string name)
+    {
+        var info = new ProcessStartInfo(Exe) { UseShellExecute = false, CreateNoWindow = true, WorkingDirectory = cwd };
+        info.ArgumentList.Add(Switch);
+        info.ArgumentList.Add(logFile);
+        info.ArgumentList.Add(name);
+        info.ArgumentList.Add(command);
+        foreach (var (key, value) in env) info.Environment[key] = value; // посредник передаст окружение серверу
+        var process = new Process { StartInfo = info, EnableRaisingEvents = true };
+        process.Start();
+        return process;
+    }
+
+    /// <summary>
+    /// Если программа запущена как посредник — выполняет команду, пишет её вывод в лог и возвращает true.
+    /// Код возврата посредника равен коду возврата команды.
+    /// </summary>
+    public static bool TryRun(string[] args, out int exitCode)
+    {
+        exitCode = 0;
+        if (args.Length != 4 || args[0] != Switch) return false;
+
+        var log = new RotatingLog(args[1]);
+        string name = args[2], command = args[3];
+        try
+        {
+            var (process, output) = CommandRunner.StartCore(command, Environment.CurrentDirectory,
+                new Dictionary<string, string>(), line => log.Append(name, line));
+            using (process)
+            {
+                process.WaitForExit();
+                output.Wait(2000);
+                exitCode = process.ExitCode;
+            }
+            log.Append(name, $"--- exited with code {exitCode}");
+        }
+        catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or IOException)
+        {
+            log.Append(name, "--- cannot start: " + ex.Message);
+            exitCode = 1;
+        }
+        return true;
     }
 }

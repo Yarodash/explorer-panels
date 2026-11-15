@@ -123,7 +123,6 @@ sealed class FakeHostApi : IHostApi
 {
     public JsonObject Values { get; } = [];
     public List<string> Done { get; } = [];
-    public List<(string Folder, bool? State)> Trusted { get; } = [];
 
     public StatusResponse Status(string folder) =>
         new(folder, true, true, [], new Dictionary<string, ServiceInfo> { ["api"] = new("running", null) }, (JsonObject)Values.DeepClone(), null);
@@ -138,12 +137,6 @@ sealed class FakeHostApi : IHostApi
     {
         Done.Add(action);
         return Task.FromResult(action == "broken" ? new ApiResult(false, "exit code 3") : new ApiResult(true));
-    }
-
-    public ApiResult Trust(string folder, bool? state)
-    {
-        Trusted.Add((folder, state));
-        return new ApiResult(true);
     }
 
     public ApiResult Reload(string folder) => new(true);
@@ -161,7 +154,7 @@ public class ApiServerTests : IDisposable
     {
         _server = new ApiServer(_api, InfoFile, TestNet.FreePort());
         _server.Start();
-        _client = new HostClient(_server.Port);
+        _client = new HostClient(_server.Port, _server.Token);
     }
 
     public void Dispose()
@@ -179,13 +172,62 @@ public class ApiServerTests : IDisposable
         Assert.Equal(Environment.ProcessId, ping.Pid);
     }
 
-    [Fact]
-    public async Task Rejects_request_without_header()
+    async Task<HttpStatusCode> Ping(Action<HttpRequestMessage> change)
     {
-        // так выглядит запрос со страницы в браузере: без особого заголовка
         using var http = new HttpClient();
-        var response = await http.GetAsync($"http://127.0.0.1:{_server.Port}/v1/ping");
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        var request = new HttpRequestMessage(HttpMethod.Get, $"http://127.0.0.1:{_server.Port}/v1/ping");
+        change(request);
+        return (await http.SendAsync(request)).StatusCode;
+    }
+
+    [Fact]
+    public async Task Rejects_request_without_the_token()
+    {
+        Assert.Equal(HttpStatusCode.Forbidden, await Ping(_ => { }));
+    }
+
+    [Fact]
+    public async Task Rejects_request_with_a_wrong_token()
+    {
+        // раньше годилось любое значение заголовка — его мог прислать кто угодно
+        Assert.Equal(HttpStatusCode.Forbidden, await Ping(r => r.Headers.Add(ApiProtocol.Header, "1")));
+    }
+
+    [Fact]
+    public async Task Accepts_request_with_the_token()
+    {
+        Assert.Equal(HttpStatusCode.OK, await Ping(r => r.Headers.Add(ApiProtocol.Header, _server.Token)));
+    }
+
+    [Fact]
+    public async Task Rejects_request_addressed_to_another_host_name()
+    {
+        // страница, чьё имя сайта перенаправили на 127.0.0.1, обращается к нам под своим именем
+        Assert.Equal(HttpStatusCode.Forbidden, await Ping(r =>
+        {
+            r.Headers.Add(ApiProtocol.Header, _server.Token);
+            r.Headers.Host = "evil.example";
+        }));
+    }
+
+    [Fact]
+    public async Task Rejects_request_coming_from_a_web_page()
+    {
+        Assert.Equal(HttpStatusCode.Forbidden, await Ping(r =>
+        {
+            r.Headers.Add(ApiProtocol.Header, _server.Token);
+            r.Headers.Add("Origin", "https://example.com");
+        }));
+    }
+
+    [Fact]
+    public void Token_is_long_and_differs_between_servers()
+    {
+        using var other = new ApiServer(_api, Path.Combine(_dir, "other.json"), TestNet.FreePort());
+        other.Start();
+
+        Assert.True(_server.Token.Length >= 32);
+        Assert.NotEqual(_server.Token, other.Token);
     }
 
     [Fact]
@@ -213,18 +255,20 @@ public class ApiServerTests : IDisposable
     }
 
     [Fact]
-    public async Task Trust_passes_the_decision()
+    public async Task There_is_no_way_to_allow_a_folder_through_the_api()
     {
-        await _client.TrustAsync(@"D:\p", true);
-        await _client.TrustAsync(@"D:\p", null);
-        Assert.Equal(new (string, bool?)[] { (@"D:\p", true), (@"D:\p", null) }, _api.Trusted);
+        // разрешение папки — только через файл в профиле пользователя (его пишет команда explorer-panel trust)
+        using var http = new HttpClient();
+        http.DefaultRequestHeaders.Add(ApiProtocol.Header, _server.Token);
+        var response = await http.PostAsync($"http://127.0.0.1:{_server.Port}/v1/trust", new StringContent("{\"folder\":\"D:\\p\",\"trusted\":true}"));
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
     }
 
     [Fact]
     public async Task Unknown_path_is_404_and_bad_body_is_400()
     {
         using var http = new HttpClient();
-        http.DefaultRequestHeaders.Add(ApiProtocol.Header, "1");
+        http.DefaultRequestHeaders.Add(ApiProtocol.Header, _server.Token);
 
         Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync($"http://127.0.0.1:{_server.Port}/v1/nope")).StatusCode);
         var bad = await http.PostAsync($"http://127.0.0.1:{_server.Port}/v1/set", new StringContent("{ not json"));
@@ -244,7 +288,7 @@ public class ApiServerTests : IDisposable
     {
         Directory.CreateDirectory(_dir);
         var stale = Path.Combine(_dir, "stale.json");
-        File.WriteAllText(stale, $$"""{ "port": {{TestNet.FreePort()}}, "pid": 1 }""");
+        File.WriteAllText(stale, $$"""{ "port": {{TestNet.FreePort()}}, "pid": 1, "token": "x" }""");
 
         Assert.Null(await HostClient.TryConnectAsync(stale));
         Assert.Null(await HostClient.TryConnectAsync(Path.Combine(_dir, "missing.json")));

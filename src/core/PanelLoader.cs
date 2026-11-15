@@ -141,6 +141,15 @@ public static partial class PanelLoader
             return null;
         }
 
+        // Команда выполняется через cmd.exe, а он берёт только первую строку и молча отбрасывает остальные.
+        string? Command(JsonElement obj, string path, string key, bool required = false)
+        {
+            var command = Str(obj, path, key, required);
+            if (command == null || command.IndexOfAny(['\n', '\r']) < 0) return command;
+            Error($"{path}/{key}", $"\"{key}\" must be a single line (join commands with && instead of line breaks)");
+            return null;
+        }
+
         void Bool(JsonElement obj, string path, string key)
         {
             if (obj.TryGetProperty(key, out var value) && value.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
@@ -293,10 +302,10 @@ public static partial class PanelLoader
             foreach (var (name, value, path) in Section(root, "services", "service"))
             {
                 CheckKeys(value, path, "run", "cwd", "env", "health", "stop");
-                var run = Str(value, path, "run", required: true);
+                var run = Command(value, path, "run", required: true);
                 var cwd = Cwd(value, path);
                 var env = Env(value, path);
-                var stop = Str(value, path, "stop");
+                var stop = Command(value, path, "stop");
                 Placeholders(run, $"{path}/run");
                 Placeholders(stop, $"{path}/stop");
 
@@ -313,7 +322,7 @@ public static partial class PanelLoader
                     else if (healthValue.ValueKind == JsonValueKind.Object)
                     {
                         CheckKeys(healthValue, $"{path}/health", "run");
-                        if (Str(healthValue, $"{path}/health", "run", required: true) is { } healthRun) health = new HealthDef(null, healthRun);
+                        if (Command(healthValue, $"{path}/health", "run", required: true) is { } healthRun) health = new HealthDef(null, healthRun);
                     }
                     else Error($"{path}/health", expected);
                 }
@@ -342,7 +351,7 @@ public static partial class PanelLoader
                     Error(path, $"action \"{name}\" needs exactly one of \"run\" or \"open\"");
                     continue;
                 }
-                var run = Str(value, path, "run");
+                var run = Command(value, path, "run");
                 var open = Str(value, path, "open");
                 Placeholders(run, $"{path}/run", allowDate: true);
                 Placeholders(open, $"{path}/open", allowDate: true);
@@ -376,7 +385,7 @@ public static partial class PanelLoader
             foreach (var (name, value, path) in Section(root, "values", "value"))
             {
                 CheckKeys(value, path, "run", "every", "cwd", "default");
-                var run = Str(value, path, "run");
+                var run = Command(value, path, "run");
                 var cwd = Cwd(value, path);
                 double every = PanelConfig.DefaultEvery;
                 if (value.TryGetProperty("every", out var everyValue))

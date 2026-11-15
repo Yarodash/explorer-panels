@@ -22,21 +22,23 @@ public sealed record StatusResponse(
 public sealed record FolderRequest(string Folder);
 public sealed record SetRequest(string Folder, JsonObject Values);
 public sealed record DoRequest(string Folder, string Action);
-public sealed record TrustRequest(string Folder, bool? Trusted);
 
 /// <summary>Итог команды: удалось ли, и если нет — почему.</summary>
 public sealed record ApiResult(bool Ok, string? Error = null);
 
-/// <summary>Запись о работающей фоновой программе (файл host.json).</summary>
-public sealed record HostInfo(int Port, int Pid);
+/// <summary>
+/// Запись о работающей фоновой программе (файл host.json в профиле пользователя): где она слушает и каким
+/// ключом к ней обращаться. Файл лежит в профиле, поэтому прочитать ключ может только сам пользователь.
+/// </summary>
+public sealed record HostInfo(int Port, int Pid, string Token);
 
 public static class ApiProtocol
 {
     public const int DefaultPort = 47631;
 
     /// <summary>
-    /// Обязательный заголовок запросов. Страница в браузере не может отправить его на чужой адрес без разрешения
-    /// сервера, поэтому сайты из интернета не достучатся до местного интерфейса.
+    /// Заголовок, в котором передаётся ключ из host.json. Без верного ключа запрос отклоняется:
+    /// так к программе не достучится ни другой пользователь компьютера, ни страница в браузере.
     /// </summary>
     public const string Header = "X-Explorer-Panel";
 

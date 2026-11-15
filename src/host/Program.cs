@@ -7,7 +7,15 @@ namespace ExplorerPanel.Host;
 static class Program
 {
     [STAThread]
-    static void Main()
+    static int Main(string[] args)
+    {
+        // запуск в роли посредника между сервером и его логом (см. Pump)
+        if (Pump.TryRun(args, out int exitCode)) return exitCode;
+        RunHost();
+        return 0;
+    }
+
+    static void RunHost()
     {
         // Один экземпляр на пользователя. У проверочных экземпляров своя папка данных — и своё имя,
         // чтобы они не мешали установленной программе.

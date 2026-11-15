@@ -14,11 +14,12 @@ public sealed class HostClient : IDisposable
 
     public int Port { get; }
 
-    public HostClient(int port)
+    /// <param name="token">Ключ из host.json.</param>
+    public HostClient(int port, string token)
     {
         Port = port;
         _http = new HttpClient { BaseAddress = new Uri($"http://127.0.0.1:{port}/"), Timeout = Timeout.InfiniteTimeSpan };
-        _http.DefaultRequestHeaders.Add(ApiProtocol.Header, "1");
+        _http.DefaultRequestHeaders.Add(ApiProtocol.Header, token);
     }
 
     /// <summary>Находит работающую программу по файлу host.json. Возвращает null, если она не запущена.</summary>
@@ -28,8 +29,8 @@ public sealed class HostClient : IDisposable
         {
             var text = await File.ReadAllTextAsync(hostInfoFile ?? AppPaths.HostInfoFile);
             var info = JsonSerializer.Deserialize<HostInfo>(text, ApiProtocol.Json);
-            if (info == null) return null;
-            var client = new HostClient(info.Port);
+            if (info == null || string.IsNullOrEmpty(info.Token)) return null;
+            var client = new HostClient(info.Port, info.Token);
             try
             {
                 await client.PingAsync();
@@ -54,7 +55,6 @@ public sealed class HostClient : IDisposable
 
     public Task<ApiResult> SetAsync(string folder, JsonObject values) => PostAsync("v1/set", new SetRequest(folder, values), Quick);
     public Task<ApiResult> DoAsync(string folder, string action) => PostAsync("v1/do", new DoRequest(folder, action), Long);
-    public Task<ApiResult> TrustAsync(string folder, bool? trusted) => PostAsync("v1/trust", new TrustRequest(folder, trusted), Quick);
     public Task<ApiResult> ReloadAsync(string folder) => PostAsync("v1/reload", new FolderRequest(folder), Quick);
 
     async Task<T> GetAsync<T>(string path, TimeSpan timeout)
