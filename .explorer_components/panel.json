@@ -1,10 +1,10 @@
 {
   "version": 1,
   "actions": {
-    "build": { "run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1" },
-    "install": { "run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1" },
+    "build": { "run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build.ps1" },
+    "install": { "run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install.ps1" },
     "tests": { "run": "dotnet test ExplorerPanels.slnx --nologo -v q" },
-    "example": { "open": "examples\fastapi-react" },
+    "example": { "open": "examples/fastapi-react" },
     "fetch": { "run": "git fetch --all --prune" },
     "pull": { "run": "git pull --ff-only" }
   },
