@@ -21,9 +21,6 @@ function visibleRects(): Rect[] {
 export function startRegionReporting() {
   const host = window.chrome?.webview
   if (!host) return // открыто в обычном браузере — сообщать некому
-  // Курсор-рука и подсветка при наведении: без этого класса в обычном браузере страница выглядела бы так же,
-  // но пусть будет видно, что страница работает внутри программы.
-  document.documentElement.dataset.hosted = "true"
 
   let last = ""
   const tick = () => {
