@@ -54,6 +54,8 @@ static class Native
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr hwnd, IntPtr after, int x, int y, int width, int height, uint flags);
     [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hwnd, int command);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hwnd);
+    public const uint ASFW_ANY = 0xFFFFFFFF; // «любому процессу»
+    [DllImport("user32.dll")] public static extern bool AllowSetForegroundWindow(uint processId);
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hwnd, uint command);
     [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr hwnd);

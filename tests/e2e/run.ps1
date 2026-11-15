@@ -1,4 +1,4 @@
-# Сквозные проверки: настоящая фоновая программа + настоящий Проводник на отдельном рабочем столе "Claude tests".
+﻿# Сквозные проверки: настоящая фоновая программа + настоящий Проводник на отдельном рабочем столе "Claude tests".
 #
 #   powershell -ExecutionPolicy Bypass -File tests\e2e\run.ps1
 #
@@ -168,6 +168,31 @@ try {
   [void](Invoke-PanelClick $explorer '[data-fit-button]' $data)
   Check "the widen button makes everything fit" (Wait-Until { (Page "!!document.querySelector('[data-fit-button]')") -eq $false } 6000) ("explorer width {0} -> {1}" -f $narrow, $Win::Rect($explorer).W)
 
+  # 12. кнопки Claude: есть в любой папке, пока включены (в трее); до этого места они были выключены
+  $ctx.Host | Stop-Process -Force
+  Start-Sleep -Milliseconds 800
+  [IO.File]::WriteAllText((Join-Path $data "settings.json"), '{ "claudeButtons": true }')
+  $ctx.Host = Start-Process $ctx.HostExe -PassThru
+  $hostLog = Join-Path $data "host.log"
+  function Logged([string]$Text) { ([string](Get-Content $hostLog -Raw -ErrorAction SilentlyContinue)).Contains($Text) }
+  function ClaudeCount { Page "document.querySelectorAll('[data-panel] [data-claude] button').length" }
+
+  Set-TestExplorerFolder $explorer $plain
+  Check "Claude buttons appear in a folder without panel.json" (Wait-Until { (Test-PanelVisible $explorer) -and ((ClaudeCount) -eq 2) } 20000) ("buttons: " + (ClaudeCount))
+  Check "such a folder shows nothing but the two buttons" ((Page "document.querySelectorAll('[data-panel] button').length") -eq 2)
+  [void](Invoke-PanelMouse $explorer '[data-claude] button:nth-of-type(1)' $data)
+  Check "the left button opens Claude in the folder shown" (Wait-Until { Logged "claude: opening in $plain" } 5000)
+  [void](Invoke-PanelMouse $explorer '[data-claude] button:nth-of-type(2)' $data)
+  Check "the right button continues the last conversation there" (Wait-Until { Logged "claude --continue: opening in $plain" } 5000)
+  Save-Shot $explorer (Join-Path $base "claude-only.png") | Out-Null
+
+  $sub = Join-Path $project "sub"
+  Set-TestExplorerFolder $explorer $sub
+  $atTheEnd = "(() => { const b = [...document.querySelectorAll('[data-panel] button')]; return b.length > 2 && b.slice(-2).every(x => !!x.closest('[data-claude]')) && !!document.querySelector('[data-panel] [data-action=start]') })()"
+  Check "a project's panel gets the Claude buttons at its right end" (Wait-Until { (Page $atTheEnd) -eq $true } 8000)
+  [void](Invoke-PanelMouse $explorer '[data-claude] button:nth-of-type(1)' $data)
+  Check "in a project Claude opens in the folder shown, not in the project root" (Wait-Until { Logged "claude: opening in $sub" } 5000)
+
   # снимок для глаз
   $shot = Join-Path $base "final.png"
   Save-Shot $explorer $shot | Out-Null
@@ -180,7 +205,7 @@ finally {
     Write-Host "host log: $(Join-Path $ctx.Data 'host.log')"
   }
   if ($explorer -ne [IntPtr]::Zero) { Close-TestExplorer $explorer }
-  Remove-Item Env:EXPLORER_PANEL_DATA, Env:EXPLORER_PANEL_DEBUG, Env:EXPLORER_PANEL_UI, Env:EXPLORER_PANEL_ONLY_UNDER -ErrorAction SilentlyContinue
+  Remove-Item Env:EXPLORER_PANEL_DATA, Env:EXPLORER_PANEL_DEBUG, Env:EXPLORER_PANEL_UI, Env:EXPLORER_PANEL_ONLY_UNDER, Env:EXPLORER_PANEL_CLAUDE_DRY -ErrorAction SilentlyContinue
   if ($wasRunning) { Start-Process $installed }
 }
 

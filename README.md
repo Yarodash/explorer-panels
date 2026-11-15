@@ -122,6 +122,16 @@ urllib.request.urlopen(urllib.request.Request(
 
 A `status` widget can follow such a value: `{ "type": "status", "value": "deploy" }`.
 
+## Claude buttons
+
+Every folder — with or without a panel — gets two buttons with the Claude icon at the right end:
+
+- the orange one opens [Claude Code](https://claude.com/claude-code) in a terminal in the folder shown;
+- the red one continues the last conversation there (`claude --continue`).
+
+They need `claude` on your PATH. Turn them off and on with **Claude buttons in every folder** in the tray
+icon's menu; turning panels off hides them too.
+
 ## Safety
 
 - A panel can run commands, so a folder must be allowed first: one click on the question the panel shows, or
@@ -150,3 +160,6 @@ powershell -File tests\e2e\run.ps1       # end-to-end, on a separate virtual des
 
 Layout: `src/core` (format, validation, rules), `src/host` (background program), `src/cli` (the command),
 `src/ui` (panel page: React + shadcn/ui), `tools/winshot` (window capture for tests).
+
+The Claude icon comes from [Simple Icons](https://simpleicons.org) (CC0). Claude is a trademark of Anthropic;
+this project is not affiliated with Anthropic.

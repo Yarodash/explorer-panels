@@ -17,6 +17,14 @@ folder with a panel (for example `examples/fastapi-react`).
       list (focus is handed back).
 - [ ] A menu stays open after the press, closes when you click a file in Explorer, and closes on Escape.
 
+## Claude buttons
+
+- [ ] A folder without a panel shows two Claude icons in the corner: orange and red.
+- [ ] The orange one opens a terminal with Claude in the folder shown; the terminal comes to the front.
+- [ ] The red one opens `claude --continue` there.
+- [ ] "This PC" and "Home" show no buttons.
+- [ ] Tray menu → "Claude buttons in every folder" removes them everywhere and brings them back.
+
 ## Feel
 
 - [ ] Drag the Explorer window quickly: the panel follows; any lag is a frame or two.

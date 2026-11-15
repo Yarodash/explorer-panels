@@ -1,4 +1,4 @@
-# Запускает проверочный экземпляр фоновой программы: со своей папкой данных и только для окон Проводника,
+﻿# Запускает проверочный экземпляр фоновой программы: со своей папкой данных и только для окон Проводника,
 # открытых внутри папки $Under. Возвращает объект с путями и процессом.
 #
 #   . .\lib.ps1
@@ -23,7 +23,12 @@ if ($Trust.Count -gt 0) {
   [pscustomobject]@{ trusted = $trusted; blocked = @() } | ConvertTo-Json | Set-Content (Join-Path $data "trust.json") -Encoding UTF8
 }
 
+# Кнопки Claude поначалу выключены: так проверяется, что без них в папке без panel.json панели нет.
+# Их включает отдельный раздел прогона — так же, как галочка в трее: через файл настроек.
+[IO.File]::WriteAllText((Join-Path $data "settings.json"), '{ "claudeButtons": false }')
+
 $env:EXPLORER_PANEL_DATA = $data
+$env:EXPLORER_PANEL_CLAUDE_DRY = "1"   # нажатие кнопки Claude только записывается в журнал: окно терминала не открывается
 $env:EXPLORER_PANEL_DEBUG = "1"
 $env:EXPLORER_PANEL_UI = $ui
 $env:EXPLORER_PANEL_ONLY_UNDER = [IO.Path]::GetFullPath($Under)

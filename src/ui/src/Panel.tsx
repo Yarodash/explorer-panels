@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { ChevronLeft, ChevronRight, MoveHorizontal, ShieldQuestion, TriangleAlert } from "lucide-react"
 
 import { send, type PanelState, type Widget } from "@/bridge"
+import { ClaudeButtons } from "@/claude"
 import { Button } from "@/components/ui/button"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { PanelProvider, Tip, usePanel, useStrings } from "@/context"
@@ -20,6 +21,10 @@ const FIT_BUTTON = 28 + GAP
 
 /** Закреплённые виджеты остаются в свёрнутой панели и прячутся последними, когда не хватает места. */
 const isPinned = (widget: Widget) => widget.type === "status" || widget.pin === true
+
+// Кнопки Claude стоят в панели последними, как закреплённый виджет: остаются в свёрнутой панели
+// и прячутся позже всех. В panel.json такого типа нет — его добавляет сама страница.
+const CLAUDE: Widget = { type: "claude-buttons", pin: true }
 
 /**
  * Следит, помещаются ли виджеты в отведённую ширину (холст = область файлов Проводника).
@@ -55,10 +60,10 @@ function useFit(widgets: Widget[]) {
 function Panel() {
   const state = usePanel()
   const t = useStrings()
-  const shown = useMemo(
-    () => (state.collapsed ? state.widgets.filter(isPinned) : state.widgets),
-    [state.collapsed, state.widgets]
-  )
+  const shown = useMemo(() => {
+    const widgets = state.collapsed ? state.widgets.filter(isPinned) : state.widgets
+    return state.claude ? [...widgets, CLAUDE] : widgets
+  }, [state.collapsed, state.widgets, state.claude])
   const fit = useFit(shown)
   const collapseLabel = state.collapsed ? t.expand : t.collapse
 
@@ -113,15 +118,25 @@ function Panel() {
               : "pointer-events-none invisible absolute flex shrink-0 items-center"
           }
         >
-          <WidgetView widget={widget} />
+          {widget === CLAUDE ? <ClaudeButtons separated={shown.length > 1} /> : <WidgetView widget={widget} />}
         </span>
       ))}
     </div>
   )
 }
 
+/** Папка без своей панели: только кнопки Claude. */
+function ClaudeOnly() {
+  return (
+    <div data-panel className={FRAME}>
+      <ClaudeButtons />
+    </div>
+  )
+}
+
 /** Пока владелец не решил, разрешать ли панель папки, вместо панели показывается этот вопрос. */
 function TrustPrompt() {
+  const state = usePanel()
   const t = useStrings()
   return (
     <div data-panel className={`${FRAME} gap-2 px-3`}>
@@ -133,6 +148,7 @@ function TrustPrompt() {
       <Button size="sm" variant="ghost" onClick={() => send({ type: "trust", allow: false })}>
         {t.deny}
       </Button>
+      {state.claude && <ClaudeButtons separated />}
     </div>
   )
 }
@@ -141,7 +157,13 @@ export function PanelRoot({ state }: { state: PanelState }) {
   return (
     <TooltipProvider delayDuration={350}>
       <PanelProvider value={state}>
-        {state.trusted === true ? <Panel /> : state.trusted === null ? <TrustPrompt /> : null}
+        {state.bare ? (
+          state.claude ? <ClaudeOnly /> : null
+        ) : state.trusted === true ? (
+          <Panel />
+        ) : state.trusted === null ? (
+          <TrustPrompt />
+        ) : null}
       </PanelProvider>
     </TooltipProvider>
   )

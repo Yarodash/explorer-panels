@@ -15,6 +15,8 @@ export type Strings = {
   clock: string
   stopwatchToggle: string
   stopwatchReset: string
+  claudeOpen: string
+  claudeContinue: string
 }
 
 const en: Strings = {
@@ -29,6 +31,8 @@ const en: Strings = {
   clock: "Current time",
   stopwatchToggle: "Stopwatch: start / pause",
   stopwatchReset: "Reset the stopwatch",
+  claudeOpen: "Open Claude in this folder",
+  claudeContinue: "Claude: continue the last conversation in this folder (claude --continue)",
 }
 
 const ru: Strings = {
@@ -43,6 +47,8 @@ const ru: Strings = {
   clock: "Текущее время",
   stopwatchToggle: "Секундомер: старт / пауза",
   stopwatchReset: "Сбросить секундомер",
+  claudeOpen: "Открыть Claude в этой папке",
+  claudeContinue: "Claude: продолжить последний разговор в этой папке (claude --continue)",
 }
 
 export const strings: Record<"en" | "ru", Strings> = { en, ru }

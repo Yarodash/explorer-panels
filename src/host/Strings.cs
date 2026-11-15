@@ -19,6 +19,7 @@ static class Strings
 
     public static string TurnOff => Pick("Turn panels off", "Выключить панели");
     public static string TurnOn => Pick("Turn panels on", "Включить панели");
+    public static string ClaudeButtons => Pick("Claude buttons in every folder", "Кнопки Claude во всех папках");
 
     public static string StopServers(string project) => Pick($"Stop servers of {project}", $"Остановить серверы: {project}");
     public static string NoServers => Pick("No servers started from panels", "Нет серверов, запущенных из панелей");

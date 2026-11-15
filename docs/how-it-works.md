@@ -61,6 +61,18 @@ so that it behaves like a part of it.
 - `localhost` is probed on both `127.0.0.1` and `::1` at once: on Windows a connection attempt to the family
   the server does not listen on stalls for about two seconds.
 
+## Claude buttons
+
+- They do not come from `panel.json`: the host adds them to the state of every window that shows a real folder
+  (not "This PC" or "Home"). A folder without a panel gets a panel window with only these two buttons.
+- The page sends only "open" or "continue"; the folder is the one the host itself sees in the Explorer window.
+- The host starts `cmd.exe /s /k "claude"` (or `"claude --continue"`) through the Windows shell with the folder
+  as the working directory, so the folder name never appears on a command line. A program without a console
+  gets a new visible console this way; on Windows 11 it opens in Windows Terminal when that is the default
+  terminal. The window stays open after Claude exits.
+- The switch is `claudeButtons` in `%LOCALAPPDATA%\ExplorerPanels\settings.json`, changed from the tray menu.
+- Cost: with the buttons on, the browser engine stays loaded while any folder window is open.
+
 ## Trust
 
 A folder's commands (services, actions, handlers) run only after the folder is allowed, and until then none of

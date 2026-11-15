@@ -14,7 +14,13 @@ sealed class HostContext : ApplicationContext
     readonly Control _ui = new(); // через него события из других потоков попадают в поток окон
     readonly ExplorerTracker _tracker = new();
     readonly Dictionary<IntPtr, PanelWindow> _windows = [];
-    readonly Dictionary<IntPtr, Project> _shown = []; // окно Проводника -> проект, чья панель в нём сейчас показана
+    readonly Dictionary<IntPtr, Shown> _shown = []; // окно Проводника -> что в нём сейчас показано
+
+    /// <summary>Что показано в окне Проводника.</summary>
+    /// <param name="Project">Проект, чья панель показана; null — у папки нет панели, показаны только кнопки Claude.</param>
+    /// <param name="Folder">Папка, открытая в окне (в ней кнопки Claude открывают терминал).</param>
+    /// <param name="Claude">Показаны ли кнопки Claude.</param>
+    sealed record Shown(Project? Project, string Folder, bool Claude);
     readonly System.Windows.Forms.Timer _refresh = new() { Interval = 700 };
     readonly string _uiFolder;
     readonly string _locale = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ru" ? "ru" : "en";
@@ -52,8 +58,24 @@ sealed class HostContext : ApplicationContext
         }
     }
 
-    /// <summary>Сколько панелей сейчас на экране.</summary>
-    public int ShownPanels => _shown.Count;
+    /// <summary>
+    /// Показывать ли кнопки Claude во всех папках (переключается из трея, сохраняется между запусками).
+    /// </summary>
+    public bool ClaudeButtons
+    {
+        get => _settings.ClaudeButtons;
+        set
+        {
+            if (value == _settings.ClaudeButtons) return;
+            _settings.ClaudeButtons = value;
+            Log.Write(value ? "claude buttons turned on" : "claude buttons turned off");
+            Rescan();
+            StateChanged?.Invoke();
+        }
+    }
+
+    /// <summary>Сколько панелей проектов сейчас на экране (папки, где показаны только кнопки Claude, не в счёт).</summary>
+    public int ShownPanels => _shown.Values.Count(shown => shown.Project != null);
 
     /// <summary>Что-то из показываемого в трее могло измениться (приходит в потоке окон).</summary>
     public event Action? StateChanged;
@@ -118,10 +140,14 @@ sealed class HostContext : ApplicationContext
         foreach (var view in views)
         {
             var project = Projects.ForFolder(view.Folder);
-            // Панель показывается, если у папки есть рабочий panel.json, папка не запрещена и окно не свёрнуто.
+            bool usable = Enabled && !view.Minimized;
+            // Панель проекта показывается, если у папки есть рабочий panel.json и папка не запрещена.
             // Для папки, о которой владелец ещё не решал, страница показывает вопрос «разрешить?».
-            bool show = Enabled && project is { Config: not null } && project.Trusted != false && !view.Minimized
-                        && ProjectLocator.Applies(project.Root, view.Folder!, project.Config.Scope);
+            bool panel = usable && project is { Config: not null } && project.Trusted != false
+                         && ProjectLocator.Applies(project.Root, view.Folder!, project.Config.Scope);
+            // Кнопки Claude — в любой настоящей папке, есть у неё панель или нет.
+            bool claude = usable && ClaudeButtons && ClaudeLauncher.CanOpenIn(view.Folder);
+            bool show = panel || claude;
 
             if (!_windows.TryGetValue(view.Window, out var window))
             {
@@ -134,9 +160,10 @@ sealed class HostContext : ApplicationContext
 
             if (show)
             {
-                _shown[view.Window] = project!;
-                visible.Add(project!);
-                window.Post(StateMessage(project!));
+                var shown = new Shown(panel ? project : null, view.Folder!, claude);
+                _shown[view.Window] = shown;
+                if (panel) visible.Add(project!);
+                window.Post(StateMessage(shown));
             }
             else _shown.Remove(view.Window);
             window.SetVisible(show);
@@ -145,9 +172,9 @@ sealed class HostContext : ApplicationContext
 
         foreach (var project in Projects.All) project.SetActive(visible.Contains(project));
 
-        // Экономия в простое: если панелей давно не видно, окна с браузерным движком закрываются.
+        // Экономия в простое: если давно ничего не показано, окна с браузерным движком закрываются.
         // Понадобятся снова — создадутся заново.
-        if (visible.Count > 0) _lastVisible = DateTime.UtcNow;
+        if (_shown.Count > 0) _lastVisible = DateTime.UtcNow;
         else if (_windows.Count > 0 && DateTime.UtcNow - _lastVisible > ReleaseEngineAfter)
         {
             foreach (var window in _windows.Values) window.Dispose();
@@ -159,25 +186,34 @@ sealed class HostContext : ApplicationContext
         StateChanged?.Invoke();
     }
 
-    string StateMessage(Project project) =>
-        new JsonObject { ["type"] = "state", ["state"] = project.BuildState(_locale) }.ToJsonString();
+    string StateMessage(Shown shown)
+    {
+        var state = shown.Project?.BuildState(_locale) ?? PanelStates.Bare(shown.Folder, _locale);
+        state["claude"] = shown.Claude;
+        return new JsonObject { ["type"] = "state", ["state"] = state }.ToJsonString();
+    }
 
     // Проект изменился: обновляем все окна, где показана его панель.
     void PushState(Project project)
     {
-        string? message = null;
         foreach (var (explorer, shown) in _shown)
         {
-            if (shown != project || !_windows.TryGetValue(explorer, out var window)) continue;
-            window.Post(message ??= StateMessage(project));
+            if (shown.Project == project && _windows.TryGetValue(explorer, out var window)) window.Post(StateMessage(shown));
         }
     }
 
     // Сообщение от страницы панели: нажали кнопку, переключили тумблер, ответили на вопрос о разрешении.
     void OnPageMessage(PanelWindow window, JsonElement message)
     {
-        if (!_shown.TryGetValue(window.Explorer, out var project)) return;
-        switch (message.GetProperty("type").GetString())
+        if (!_shown.TryGetValue(window.Explorer, out var shown)) return;
+        var type = message.GetProperty("type").GetString();
+        if (type == "claude")
+        {
+            if (shown.Claude) OpenClaude(shown.Folder, message.GetProperty("resume").GetBoolean());
+            return;
+        }
+        if (shown.Project is not { } project) return; // остальные сообщения относятся к панели проекта
+        switch (type)
         {
             case "do":
                 var action = message.GetProperty("action").GetString()!;
@@ -203,6 +239,19 @@ sealed class HostContext : ApplicationContext
             case "error":
                 project.LastError = message.GetProperty("message").GetString();
                 break;
+        }
+    }
+
+    // Папку страница не присылает: Claude открывается в той, что программа сама видит в окне Проводника.
+    static void OpenClaude(string folder, bool resume)
+    {
+        Log.Write($"claude{(resume ? " --continue" : "")}: opening in {folder}");
+        // сквозные проверки не открывают окон на рабочем столе пользователя — им достаточно записи в журнале
+        if (Environment.GetEnvironmentVariable("EXPLORER_PANEL_CLAUDE_DRY") == "1") return;
+        try { ClaudeLauncher.Open(folder, resume); }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+        {
+            Log.Write("claude did not start: " + ex.Message);
         }
     }
 

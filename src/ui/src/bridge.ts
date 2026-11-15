@@ -21,6 +21,10 @@ export type PanelState = {
   actions: Record<string, "running" | "ok" | "failed">
   /** виджеты, которые вернули обработчики значений, — для виджета slot */
   slots: Record<string, Widget[]>
+  /** показывать кнопки Claude (они есть в любой папке; включаются и выключаются в трее) */
+  claude?: boolean
+  /** у папки нет своей панели: на экране только кнопки Claude */
+  bare?: boolean
 }
 
 // хозяин → страница
@@ -35,6 +39,8 @@ export type PageMessage =
   | { type: "set"; name: string; value: unknown }
   | { type: "trust"; allow: boolean }
   | { type: "collapse"; collapsed: boolean }
+  | { type: "claude"; resume: boolean } // открыть Claude в показанной папке; resume — продолжить последний разговор
+  | { type: "error"; message: string } // страница не смогла нарисовать панель
   | { type: "release" } // нажатие закончилось и всплывающих частей нет: фокус можно вернуть Проводнику
 
 type Listener = (event: { data: HostMessage }) => void

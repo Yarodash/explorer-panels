@@ -51,6 +51,11 @@ sealed class Tray : IDisposable
         toggle.Font = new Font(toggle.Font, FontStyle.Bold); // главное действие; оно же — по двойному щелчку
         toggle.Click += (_, _) => _host.Enabled = !_host.Enabled;
         _menu.Items.Add(toggle);
+
+        // кнопки Claude есть в любой папке; галочка включает и выключает их отдельно от панелей проектов
+        var claude = new ToolStripMenuItem(Strings.ClaudeButtons) { Checked = _host.ClaudeButtons, Enabled = _host.Enabled };
+        claude.Click += (_, _) => _host.ClaudeButtons = !_host.ClaudeButtons;
+        _menu.Items.Add(claude);
         _menu.Items.Add(new ToolStripSeparator());
 
         // проекты, у которых панель запустила серверы
