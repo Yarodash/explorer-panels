@@ -1,4 +1,4 @@
-# Собирает программу целиком в artifacts\app:
+﻿# Собирает программу целиком в artifacts\app:
 #   explorer-panel-host.exe  — фоновая программа
 #   explorer-panel.exe       — команда для агентов и скриптов
 #   ui\                      — страница панели

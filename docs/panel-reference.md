@@ -37,7 +37,10 @@ Everywhere a command is given the key is `run`.
 - The working folder is the **project root** (the folder that contains `.explorer_components`) — for services,
   actions and value handlers alike. `cwd` selects another folder, relative to the project root.
 - `env` adds environment variables: `{ "env": { "DEBUG": "1" } }`.
-- Nothing is shown on screen. Output goes to `.explorer_components/logs/services.log`.
+- Nothing is shown on screen. Output goes to `.explorer_components/logs/services.log` line by line, as it is
+  produced.
+- Commands get the environment of a normal sign-in, not the environment of whatever started the background
+  program.
 - Commands run only after the folder has been allowed (`explorer-panel trust`).
 
 ## `services`
@@ -85,6 +88,9 @@ Details worth knowing:
 - A start command that exits with code 0 (a launcher like `docker compose up -d`) is not a failure; the status
   then follows `health` only, so give such services both `health` and `stop`.
 - Services keep running when the background program exits or is updated; when it starts again it finds them.
+- A running service that is removed from `panel.json` (or renamed) is stopped: the panel started it, and after
+  the change nothing else could stop it.
+- A port held by Docker's or WSL's port forwarder does not count as another program.
 - Until the folder is allowed, `health` addresses are not contacted.
 
 ## `actions`
@@ -156,10 +162,15 @@ Handler output:
 `{name}` is replaced by the current value `name`:
 
 - in `text`, `tooltip` and `label` — as is; an unknown name becomes empty;
-- in `open` — encoded as part of an address when the target is an `http(s)` address; inserted as is when it
-  is a file or folder;
-- in `run` — only if the value consists of letters, digits and `. _ - / : @ +`. Otherwise the command is not
-  run and the reason is written to the log. This keeps a branch name or pushed text from becoming a command.
+- in `open` — when the target is an address (`http://…`, `vscode://…`), the value is encoded as part of the
+  address. When it is a file or folder, the value may choose something **inside the project folder** only;
+  a value that leads elsewhere (`..`, an absolute path, an address) makes the action fail;
+- in `run` — only if the value consists of letters, digits and `. _ - / : @ +`, and does not start an argument
+  with `-` or `/` (the command would read it as an option; `--mode={mode}` is fine). Otherwise the command is
+  not run and the reason is written to the log. This keeps a branch name or pushed text from becoming a command.
+
+To write a literal brace, double it: `"run": "git rev-list @{{u}}..HEAD --count"` runs
+`git rev-list @{u}..HEAD --count`.
 
 An action started by a `calendar` widget also gets `{date}` (`YYYY-MM-DD`).
 
@@ -239,7 +250,18 @@ loaded: no (the panel shows the last valid version, if there was one)
 ```
 
 Errors must be fixed. Warnings point at probable typos. While the file has errors, the panel keeps showing
-its last valid version with a warning sign.
+its last valid version with a warning sign. If the page could not draw the panel, `check` prints the reason as
+`last panel error`.
+
+To see the result:
+
+```
+explorer-panel screenshot
+```
+
+saves a PNG of the panel and prints its path (`.explorer_components/logs/panel.png`, or `--out file.png`).
+The picture is taken by the panel page itself, so the folder must be open in File Explorer, but the window
+need not be in front.
 
 An optional `"$schema"` key may point at [schema/panel.schema.json](../schema/panel.schema.json) for editor
 completion.

@@ -1,5 +1,8 @@
 # Explorer Panels — план реализации
 
+> **Исторический документ.** Написан до реализации и после неё не обновлялся: часть решений изменилась (папку нельзя разрешить через местный интерфейс; нажатие на панели не выводит Проводник вперёд; свои виды `panel.tsx` и ввод с клавиатуры не делались). Как программа устроена сейчас — [docs/how-it-works.md](../../how-it-works.md) и [docs/panel-reference.md](../../panel-reference.md).
+
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Программа, которая всегда работает в системе и показывает в настоящем Проводнике Windows 11 панель управления проектом, описанную одним файлом `.explorer_components/panel.json`, — так, чтобы панель мог добавить Claude по одной ссылке на репозиторий.

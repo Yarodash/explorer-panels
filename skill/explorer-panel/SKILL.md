@@ -27,7 +27,9 @@ Your job is to write that one file for the current project. No build step, no de
    `check` must end with `OK` and exit code 0. Each problem is a line
    `panel.json:line:column: error: message` with a suggested fix. Fix and repeat until clean; warnings usually
    mean a typo.
-5. **Tell the user** what the panel contains and that it is visible in File Explorer in the project folder
+5. **Look at it** (optional, when the folder is open in File Explorer): `explorer-panel screenshot` saves a
+   PNG of the panel and prints its path — read the image to see what the user sees.
+6. **Tell the user** what the panel contains and that it is visible in File Explorer in the project folder
    (and its subfolders). Do not start the servers yourself unless asked.
 
 ## Format
@@ -94,7 +96,8 @@ Every widget may have `tooltip` and `pin` (`true` keeps it when the panel is col
 - Commands run through `cmd.exe` from the **project root**; use `cwd` for a subfolder. Write them exactly as
   they would be typed in a Command Prompt (`npm run dev`, not a PowerShell-only form).
 - `{name}` inserts a value into `text`, `tooltip`, `open` and `run`. In `run` only values made of letters,
-  digits and `. _ - / : @ +` are substituted.
+  digits and `. _ - / : @ +` are substituted. A literal brace is doubled: `git rev-list @{{u}}..HEAD`.
+- A command is a single line; join several with `&&`.
 - Icons are lucide names in kebab-case (`play`, `square`, `globe`, `file-text`, `flask-conical`, `hammer`,
   `refresh-cw`, `terminal`, `database`, `git-branch`, `ellipsis`). `check` rejects unknown names and suggests
   the nearest.
@@ -111,4 +114,4 @@ Every widget may have `tooltip` and `pin` (`true` keeps it when the panel is col
 ## Other commands
 
 `explorer-panel status` (services and values as JSON), `start | stop | restart [service]`, `do <action>`,
-`set name=value`, `logs`. Full reference: `docs/panel-reference.md` in the repository.
+`set name=value`, `logs`, `screenshot [--out file]`. Full reference: `docs/panel-reference.md` in the repository.

@@ -74,7 +74,12 @@ How to fill it in:
 
 ## Install
 
-Requires Windows 11, [.NET SDK 10](https://dotnet.microsoft.com/download) and [Node.js 20+](https://nodejs.org).
+**Ready-made build.** Download `ExplorerPanels-…-win-x64.zip` from
+[Releases](https://github.com/Yarodash/explorer-panels/releases/latest), unzip it anywhere and run `install.cmd`.
+Needs Windows 11 and nothing else. Windows may ask for confirmation because the build is not signed.
+
+**From source.** Requires Windows 11, [.NET SDK 10](https://dotnet.microsoft.com/download) and
+[Node.js 20+](https://nodejs.org).
 
 ```
 git clone https://github.com/Yarodash/explorer-panels
@@ -84,7 +89,7 @@ powershell -ExecutionPolicy Bypass -File scripts\install.ps1
 
 The script builds the program, copies it to `%LOCALAPPDATA%\Programs\ExplorerPanels`, makes it start at sign-in,
 puts `explorer-panel` on your PATH and starts it (a tray icon appears). Run it again to update.
-`scripts\uninstall.ps1` removes it.
+`scripts\uninstall.ps1` removes it (`uninstall.cmd` in the ready-made build).
 
 ## The `explorer-panel` command
 
@@ -97,6 +102,7 @@ puts `explorer-panel` on your PATH and starts it (a tray icon appears). Run it a
 | `do <action>` | Run an action from `panel.json`. |
 | `set name=value ...` | Set values instantly (see below). |
 | `logs` | Print the log file path and its last lines. |
+| `screenshot [--out file]` | Save a picture of the panel as PNG (the folder must be open in File Explorer). |
 
 The folder defaults to the current one; the project is found by walking up from it.
 
@@ -140,7 +146,10 @@ icon's menu; turning panels off hides them too.
   profile; requests from web pages are refused. A folder cannot be allowed through it.
 - Stop only ever stops processes of the project: those the panel started, or those running from inside the
   project folder. Another program on the same port is reported as a problem and left alone.
-- A value is substituted into a command only if it consists of letters, digits and `. _ - / : @ +`.
+- A value is substituted into a command only if it consists of letters, digits and `. _ - / : @ +` and cannot
+  be read as an option. In `open`, a value can choose a file inside the project but cannot lead outside it.
+- Whatever the panel starts gets the environment of a normal sign-in, not that of the terminal the program
+  was started from.
 
 ## More
 

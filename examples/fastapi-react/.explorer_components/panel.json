@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/Yarodash/explorer-panels/main/schema/panel.schema.json",
   "version": 1,
   "services": {
     "api": {

@@ -21,6 +21,9 @@ so that it behaves like a part of it.
 - WinEvent hooks report moves, resizes, minimising, tab switches and virtual-desktop changes. A one-second
   rescan is the safety net; it also notices a `panel.json` that has just appeared.
 - For the folder shown, the project is the nearest ancestor containing `.explorer_components/panel.json`.
+- Anything that touches the disk for a folder (finding the project, re-reading `panel.json`) runs on a
+  background thread; the window thread uses the last known answer and re-checks the windows when it changes.
+  A network folder that stops answering therefore cannot freeze the panels.
 
 ## The panel window
 
@@ -36,6 +39,7 @@ so that it behaves like a part of it.
   page loses focus. Another program's active window is never touched.
 - It is anchored to the file list area (`SHELLDLL_DefView`), not to the window frame, so it never covers the
   navigation pane, the status bar or the details pane.
+- If the browser engine fails to start, the window tries again after 2, 10, 30 and then every 60 seconds.
 - **Transparency.** The window has no surface of its own (`WS_EX_NOREDIRECTIONBITMAP`); only the page, drawn by
   WebView2 with a transparent background, is on screen. Shadows and rounded corners are real per-pixel alpha.
 - **Click-through.** The window is a canvas larger than the panel, leaving room for tooltips, the calendar and
@@ -52,6 +56,11 @@ so that it behaves like a part of it.
   host itself. If the host read it, closing the host would break the service's output and the service with it;
   the go-between lives exactly as long as the service.
 - Start and stop of one service never overlap.
+- A running service removed from `panel.json` is stopped.
+- **Environment.** At start the host replaces its environment with the one Windows gives at sign-in
+  (`CreateEnvironmentBlock`), keeping only its own `EXPLORER_PANEL_*` variables. Otherwise a host started from
+  a terminal — the installer run inside Claude Code or Git Bash — would pass that terminal's variables to every
+  service, action and Claude terminal: Claude opened by a button then took itself for a nested session.
 - The status is computed by one pure function (`ServiceStatusRules`) from observations: does `health` answer,
   is the process the panel started alive, how did it exit, who listens on the port.
 - **Ownership.** A listening process belongs to the project if it descends from a process the panel started,
@@ -101,6 +110,10 @@ A request is accepted only if all of this holds:
 | `POST /v1/set` | `{ folder, values }` | set values instantly |
 | `POST /v1/do` | `{ folder, action }` | run an action and return its result (allowed folders only) |
 | `POST /v1/reload` | `{ folder }` | re-read `panel.json` |
+| `POST /v1/screenshot` | `{ folder, file }` | save a PNG of the panel shown for the folder |
+
+The screenshot is taken by the page (`Page.captureScreenshot` of the browser's debugging protocol), clipped to
+the panel and its pop-ups and laid over a dark background; the screen itself is never captured.
 
 ## Cost
 
