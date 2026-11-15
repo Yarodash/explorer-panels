@@ -28,7 +28,7 @@ New-Item -ItemType Directory (Join-Path $project ".explorer_components"), (Join-
 $panelJson = @"
 {
   "services": { "api": { "run": "python -m http.server $port --bind 127.0.0.1", "health": "http://127.0.0.1:$port/" } },
-  "actions": { "mark": { "run": "echo marked> marker.txt" } },
+  "actions": { "mark": { "run": "echo marked> marker.txt" }, "envdump": { "run": "set > env.txt" } },
   "values": { "note": {} },
   "widgets": [
     { "type": "clock" }, { "type": "stopwatch" }, { "type": "separator" },
@@ -52,6 +52,7 @@ if ($wasRunning) { Get-Process explorer-panel-host | Where-Object { $_.Path -eq 
 $ctx = $null; $explorer = [IntPtr]::Zero
 try {
   # программа запускается раньше, чем открыто окно Проводника: она должна найти окно, открытое позже
+  $env:EP_E2E_INHERITED = "from the launching terminal" # программа не должна передавать это тому, что запускает
   $ctx = & (Join-Path $PSScriptRoot "start-host.ps1") -Under $base -Trust $project, $plain
   $data = $ctx.Data
   Start-Sleep -Seconds 2
@@ -158,6 +159,12 @@ try {
   $shown = Wait-Until { (Page "document.querySelector('[data-panel]')?.textContent ?? ''") -match "note: привет" } 5000
   Check "explorer-panel set updates the panel at once" $shown ("after {0} ms" -f $watch.ElapsedMilliseconds)
 
+  # 10b. окружение: команды панели получают обычное окружение пользователя, а не окружение запустившего терминала
+  & $ctx.Cli do envdump $project | Out-Null
+  $seen = @(Get-Content (Join-Path $project "env.txt") -ErrorAction SilentlyContinue | ForEach-Object { ($_ -split "=", 2)[0] })
+  Check "a panel command does not inherit the launching terminal's variables" (($seen.Count -gt 10) -and ($seen -notcontains "EP_E2E_INHERITED") -and ($seen -notcontains "CLAUDE_CODE_CHILD_SESSION")) ("variables: " + $seen.Count)
+  Check "a panel command still has the user's usual variables" (($seen -contains "USERPROFILE") -and (@($seen | Where-Object { $_ -ieq "Path" }).Count -eq 1))
+
   # 11. не помещается -> кнопка расширения
   $wide = $Win::Rect($explorer).W
   Resize-TestExplorer $explorer (-($wide - 620)) 0
@@ -205,7 +212,7 @@ finally {
     Write-Host "host log: $(Join-Path $ctx.Data 'host.log')"
   }
   if ($explorer -ne [IntPtr]::Zero) { Close-TestExplorer $explorer }
-  Remove-Item Env:EXPLORER_PANEL_DATA, Env:EXPLORER_PANEL_DEBUG, Env:EXPLORER_PANEL_UI, Env:EXPLORER_PANEL_ONLY_UNDER, Env:EXPLORER_PANEL_CLAUDE_DRY -ErrorAction SilentlyContinue
+  Remove-Item Env:EXPLORER_PANEL_DATA, Env:EXPLORER_PANEL_DEBUG, Env:EXPLORER_PANEL_UI, Env:EXPLORER_PANEL_ONLY_UNDER, Env:EXPLORER_PANEL_CLAUDE_DRY, Env:EP_E2E_INHERITED -ErrorAction SilentlyContinue
   if ($wasRunning) { Start-Process $installed }
 }
 

@@ -22,6 +22,9 @@ static class Program
         using var single = new Mutex(initiallyOwned: true, MutexName(), out bool first);
         if (!first) return;
 
+        // всё, что программа запустит, получит обычное окружение пользователя, а не окружение того, кто запустил её
+        LoginEnvironment.Apply();
+
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
         Application.EnableVisualStyles();
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
