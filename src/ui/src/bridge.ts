@@ -35,7 +35,7 @@ export type PageMessage =
   | { type: "set"; name: string; value: unknown }
   | { type: "trust"; allow: boolean }
   | { type: "collapse"; collapsed: boolean }
-  | { type: "activate" } // по панели нажали: вывести её Проводник на передний план
+  | { type: "release" } // нажатие закончилось и всплывающих частей нет: фокус можно вернуть Проводнику
 
 type Listener = (event: { data: HostMessage }) => void
 

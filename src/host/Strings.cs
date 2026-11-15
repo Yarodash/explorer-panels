@@ -9,14 +9,23 @@ static class Strings
 
     static string Pick(string en, string ru) => Russian ? ru : en;
 
-    public static string TrayTitle => Pick("Explorer Panels", "Explorer Panels — панели в Проводнике");
+    static string Count(int n, string one, string many) => n == 1 ? $"1 {one}" : $"{n} {many}";
+
+    // состояние программы — в подсказке значка и в первой строке меню
+    public static string StatusOn(int panels, int servers) => Pick(
+        $"Working: {Count(panels, "panel", "panels")} shown, {Count(servers, "server", "servers")} started",
+        $"Работает: панелей на экране — {panels}, запущено серверов — {servers}");
+    public static string StatusOff => Pick("Turned off: panels are hidden", "Выключено: панели скрыты");
+
+    public static string TurnOff => Pick("Turn panels off", "Выключить панели");
+    public static string TurnOn => Pick("Turn panels on", "Включить панели");
+
     public static string StopServers(string project) => Pick($"Stop servers of {project}", $"Остановить серверы: {project}");
     public static string NoServers => Pick("No servers started from panels", "Нет серверов, запущенных из панелей");
     public static string Allowed => Pick("Allowed folders", "Разрешённые папки");
     public static string Blocked => Pick("Blocked folders", "Запрещённые папки");
     public static string Forget(string folder) => Pick($"Forget {folder}", $"Забыть {folder}");
     public static string None => Pick("(none)", "(нет)");
-    public static string Pause => Pick("Pause panels", "Скрыть панели");
     public static string OpenLog => Pick("Open the log", "Открыть журнал");
     public static string Exit => Pick("Exit", "Выход");
 }

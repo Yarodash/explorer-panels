@@ -165,6 +165,17 @@ sealed class Project : IDisposable
         }
     }
 
+    /// <summary>Сколько серверов проекта сейчас работает из запущенных панелью.</summary>
+    public int OwnProcessCount
+    {
+        get
+        {
+            List<ServiceRunner> runners;
+            lock (_gate) runners = _services.Values.ToList();
+            return runners.Count(r => r.OwnAlive());
+        }
+    }
+
     public bool Active => _active;
 
     /// <summary>Видна ли сейчас панель проекта. Обработчики значений запускаются, только пока она видна.</summary>

@@ -28,6 +28,7 @@ New-Item -ItemType Directory (Join-Path $project ".explorer_components"), (Join-
 $panelJson = @"
 {
   "services": { "api": { "run": "python -m http.server $port --bind 127.0.0.1", "health": "http://127.0.0.1:$port/" } },
+  "actions": { "mark": { "run": "echo marked> marker.txt" } },
   "values": { "note": {} },
   "widgets": [
     { "type": "clock" }, { "type": "stopwatch" }, { "type": "separator" },
@@ -37,7 +38,8 @@ $panelJson = @"
     { "type": "status", "service": "api" },
     { "type": "button", "icon": "play", "tooltip": "Start", "do": "start", "pin": true },
     { "type": "button", "icon": "square", "tooltip": "Stop", "do": "stop", "pin": true },
-    { "type": "button", "icon": "file-text", "tooltip": "Logs", "do": "logs" }
+    { "type": "button", "icon": "file-text", "tooltip": "Logs", "do": "logs" },
+    { "type": "menu", "icon": "ellipsis", "tooltip": "More", "pin": true, "items": [ { "label": "Mark", "do": "mark" } ] }
   ]
 }
 "@
@@ -128,6 +130,15 @@ try {
   [void](Invoke-PanelClick $explorer '[data-action=stop]' $data)
   Check "Stop: service becomes stopped" (Wait-Until { (ApiStatus) -eq "stopped" } 20000) (ApiStatus)
   Check "Stop: the server no longer listens" (Wait-Until { -not (Listening) } 5000)
+
+  # 9a. меню открывается по нажатию указателя — проверяем настоящим событием мыши, а не программным click()
+  [void](Invoke-PanelMouse $explorer '[data-panel] button[aria-label=More]' $data)
+  Start-Sleep -Milliseconds 700
+  Check "a menu opened by a real mouse press stays open" ((Page "!!document.querySelector('[role=menu]')") -eq $true)
+  Check "the open menu is clickable (it is inside the window region)" ($Win::RegionRects((Get-Panel $explorer)).Count -gt 1 -or ($Win::RegionRects((Get-Panel $explorer)) | ForEach-Object { $_.H } | Measure-Object -Maximum).Maximum -gt 100)
+  [void](Invoke-PanelMouse $explorer '[role=menuitem]' $data)
+  Check "choosing a menu item runs its action" (Wait-Until { Test-Path (Join-Path $project "marker.txt") } 8000)
+  Check "the menu closes after a choice" (Wait-Until { (Page "!!document.querySelector('[role=menu]')") -eq $false } 4000)
 
   # 10. команда explorer-panel и мгновенное обновление значения снаружи
   $env:EXPLORER_PANEL_DATA = $data

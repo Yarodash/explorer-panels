@@ -22,6 +22,9 @@ public static class AppPaths
 
     public static string HostLog => Path.Combine(DataDir, "host.log");
 
+    /// <summary>Настройки фоновой программы (включены ли панели).</summary>
+    public static string SettingsFile => Path.Combine(DataDir, "settings.json");
+
     /// <summary>Сохранённое состояние проекта: запущенные панелью процессы, значения тумблеров.</summary>
     public static string StateFile(string projectRoot) => StateFileIn(DataDir, projectRoot);
 

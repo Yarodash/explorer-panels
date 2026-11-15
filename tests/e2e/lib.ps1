@@ -187,3 +187,53 @@ function Save-Shot([IntPtr]$Explorer, [string]$Out) {
   else { & $exe $Out ([int64]$Explorer) | Out-Null }
   $Out
 }
+
+# Настоящее нажатие мыши на элементе панели (события порождает сам браузерный движок, а не программный click()):
+# так проверяются меню и списки, которые открываются по нажатию указателя.
+function Invoke-PanelMouse([IntPtr]$Explorer, [string]$Selector, [string]$DataDir) {
+  $point = Invoke-PanelJs $Explorer "(() => { const e = document.querySelector('$Selector'); if (!e) return null; const r = e.getBoundingClientRect(); return Math.round(r.x + r.width / 2) + ',' + Math.round(r.y + r.height / 2) })()" $DataDir
+  if (-not $point -or $point -eq "NO ANSWER") { return "not found" }
+  $in = Join-Path $DataDir "debug-eval.js"; $out = Join-Path $DataDir "debug-eval.out"
+  Remove-Item $out -ErrorAction SilentlyContinue
+  Set-Content -Path $in -Value ("//target:" + [int64]$Explorer + "`n//mouse:" + $point) -Encoding UTF8
+  for ($i = 0; $i -lt 80 -and -not (Test-Path $out); $i++) { Start-Sleep -Milliseconds 100 }
+  if (Test-Path $out) { (Get-Content $out -Raw).Trim('"') } else { "NO ANSWER" }
+}
+
+# Нажатие мыши оконными сообщениями Windows прямо в окно браузерного движка панели. В отличие от Invoke-PanelMouse
+# проходит весь путь настоящего щелчка внутри движка, включая получение и потерю фокуса окном.
+if (-not ("E2E.Msg" -as [type])) {
+Add-Type @'
+using System; using System.Text; using System.Runtime.InteropServices;
+namespace E2E {
+public static class Msg {
+  public delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr p, EnumProc cb, IntPtr l);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetClassName(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr h, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  public static IntPtr Child(IntPtr parent, string cls) {
+    IntPtr found = IntPtr.Zero;
+    EnumChildWindows(parent, (h, l) => { var sb = new StringBuilder(128); GetClassName(h, sb, 128); if (sb.ToString() == cls) { found = h; return false; } return true; }, IntPtr.Zero);
+    return found;
+  }
+  public static void Click(IntPtr hwnd, int x, int y) {
+    IntPtr at = (IntPtr)((y << 16) | (x & 0xFFFF));
+    PostMessage(hwnd, 0x0200, IntPtr.Zero, at);      // WM_MOUSEMOVE
+    PostMessage(hwnd, 0x0201, (IntPtr)1, at);        // WM_LBUTTONDOWN
+    System.Threading.Thread.Sleep(90);
+    PostMessage(hwnd, 0x0202, IntPtr.Zero, at);      // WM_LBUTTONUP
+  }
+}}
+'@
+}
+
+function Invoke-PanelWindowClick([IntPtr]$Explorer, [string]$Selector, [string]$DataDir) {
+  $point = Invoke-PanelJs $Explorer "(() => { const e = document.querySelector('$Selector'); if (!e) return null; const r = e.getBoundingClientRect(); const d = devicePixelRatio; return Math.round((r.x + r.width / 2) * d) + ',' + Math.round((r.y + r.height / 2) * d) })()" $DataDir
+  if (-not $point -or $point -eq "NO ANSWER") { return "not found" }
+  $xy = $point.Split(',')
+  $target = [E2E.Msg]::Child((Get-Panel $Explorer), "Chrome_RenderWidgetHostHWND")
+  if ($target -eq [IntPtr]::Zero) { return "no browser window" }
+  [E2E.Msg]::Click($target, [int]$xy[0], [int]$xy[1])
+  "clicked"
+}

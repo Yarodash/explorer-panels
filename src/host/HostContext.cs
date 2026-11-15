@@ -28,23 +28,35 @@ sealed class HostContext : ApplicationContext
 
     static readonly TimeSpan ReleaseEngineAfter = TimeSpan.FromMinutes(5);
     DateTime _lastVisible = DateTime.UtcNow; // когда в последний раз была видна хоть одна панель
-    bool _paused;
+    readonly HostSettings _settings = new(AppPaths.SettingsFile);
     Tray? _tray;
     ApiServer? _api;
 
     public TrustStore Trust { get; } = new(AppPaths.TrustFile);
     public ProjectRegistry Projects { get; }
 
-    /// <summary>Пауза из меню в трее: все панели скрыты, серверы продолжают работать.</summary>
-    public bool Paused
+    /// <summary>
+    /// Включены ли панели (переключается из трея, сохраняется между запусками).
+    /// Когда выключены, все панели скрыты; серверы при этом продолжают работать.
+    /// </summary>
+    public bool Enabled
     {
-        get => _paused;
+        get => _settings.Enabled;
         set
         {
-            _paused = value;
+            if (value == _settings.Enabled) return;
+            _settings.Enabled = value;
+            Log.Write(value ? "panels turned on" : "panels turned off");
             Rescan();
+            StateChanged?.Invoke();
         }
     }
+
+    /// <summary>Сколько панелей сейчас на экране.</summary>
+    public int ShownPanels => _shown.Count;
+
+    /// <summary>Что-то из показываемого в трее могло измениться (приходит в потоке окон).</summary>
+    public event Action? StateChanged;
 
     public HostContext()
     {
@@ -108,7 +120,7 @@ sealed class HostContext : ApplicationContext
             var project = Projects.ForFolder(view.Folder);
             // Панель показывается, если у папки есть рабочий panel.json, папка не запрещена и окно не свёрнуто.
             // Для папки, о которой владелец ещё не решал, страница показывает вопрос «разрешить?».
-            bool show = !_paused && project is { Config: not null } && project.Trusted != false && !view.Minimized
+            bool show = Enabled && project is { Config: not null } && project.Trusted != false && !view.Minimized
                         && ProjectLocator.Applies(project.Root, view.Folder!, project.Config.Scope);
 
             if (!_windows.TryGetValue(view.Window, out var window))
@@ -143,6 +155,8 @@ sealed class HostContext : ApplicationContext
             _shown.Clear();
             Log.Write("no panels visible for a while: browser engine released");
         }
+
+        StateChanged?.Invoke();
     }
 
     string StateMessage(Project project) =>

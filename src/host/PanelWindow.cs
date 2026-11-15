@@ -153,9 +153,11 @@ sealed class PanelWindow : IDisposable
                     _pageReady = true;
                     if (_state != null) _web.CoreWebView2.PostWebMessageAsJson(_state);
                     break;
-                case "activate":
-                    // клик по панели — как клик по самому Проводнику: выводим его вперёд (если Windows позволит)
-                    if (Native.GetForegroundWindow() != Explorer) Native.SetForegroundWindow(Explorer);
+                case "release":
+                    // Нажатие на панели закончилось, и всплывающих частей на ней нет. Если фокус при этом остался
+                    // у панели (его забрал браузерный движок) — возвращаем Проводнику. Активное окно другой
+                    // программы не трогаем: отбирать фокус у того, с чем человек работает, нельзя.
+                    if (Native.GetForegroundWindow() == Hwnd) Native.SetForegroundWindow(Explorer);
                     break;
                 default:
                     Message?.Invoke(root.Clone());
@@ -287,13 +289,29 @@ sealed class PanelWindow : IDisposable
 
             long only = 0;
             if (script.StartsWith("//target:")) long.TryParse(script[9..script.IndexOf('\n')].Trim(), out only);
+            // Строка "//mouse:x,y" после цели — не JavaScript, а настоящее нажатие мыши в точке страницы
+            // (через протокол отладки браузера): так проверяется то, что программный click() не воспроизводит.
+            var body = script.StartsWith("//target:") ? script[(script.IndexOf('\n') + 1)..] : script;
             var result = "NO PANEL";
             foreach (var window in Live.ToList())
             {
                 if (only != 0 && window.Explorer.ToInt64() != only) continue;
                 try
                 {
-                    result = window._web.CoreWebView2 != null ? await window._web.CoreWebView2.ExecuteScriptAsync(script) : "PAGE NOT READY";
+                    var core = window._web.CoreWebView2;
+                    if (core == null) result = "PAGE NOT READY";
+                    else if (body.StartsWith("//mouse:"))
+                    {
+                        var xy = body[8..].Trim().Split(',');
+                        string Event(string type) =>
+                            $"{{\"type\":\"{type}\",\"x\":{xy[0]},\"y\":{xy[1]},\"button\":\"left\",\"buttons\":{(type == "mouseReleased" ? 0 : 1)},\"clickCount\":1,\"pointerType\":\"mouse\"}}";
+                        await core.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", $"{{\"type\":\"mouseMoved\",\"x\":{xy[0]},\"y\":{xy[1]}}}");
+                        await core.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", Event("mousePressed"));
+                        await Task.Delay(90);
+                        await core.CallDevToolsProtocolMethodAsync("Input.dispatchMouseEvent", Event("mouseReleased"));
+                        result = "\"pressed\"";
+                    }
+                    else result = await core.ExecuteScriptAsync(script);
                 }
                 catch (Exception ex) { result = "ERROR " + ex.Message; }
             }
