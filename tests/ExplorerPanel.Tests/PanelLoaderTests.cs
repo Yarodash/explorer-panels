@@ -242,6 +242,21 @@ public class PanelLoaderTests : IDisposable
     }
 
     [Fact]
+    public void ValidWidgets_keeps_good_and_drops_bad()
+    {
+        var config = Parse("""{ "actions": { "site": { "open": "http://x" } } }""").Config!;
+        var widgets = (System.Text.Json.Nodes.JsonArray)System.Text.Json.Nodes.JsonNode.Parse("""
+            [ { "type": "text", "text": "ok" }, { "type": "hologram" }, { "type": "button", "icon": "globe", "do": "site" },
+              { "type": "button", "icon": "globe", "do": "missing" } ]
+            """)!;
+
+        var valid = PanelLoader.ValidWidgets(widgets, config, _project.Root);
+
+        Assert.Equal(new[] { "text", "button" }, valid.Select(w => (string?)w!["type"]));
+        Assert.Equal("site", (string?)valid[1]!["do"]);
+    }
+
+    [Fact]
     public void LoadFile_reads_panel_json_from_project()
     {
         _project.WritePanel("""{ "services": { "api": { "run": "x" } } }""");

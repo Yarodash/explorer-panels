@@ -58,6 +58,18 @@ public static partial class PanelLoader
         }
     }
 
+    /// <summary>
+    /// Отбирает из списка виджетов правильные (для виджетов, которые вернул обработчик значения).
+    /// Неправильные просто отбрасываются: один плохой элемент не должен ломать панель.
+    /// </summary>
+    public static JsonArray ValidWidgets(JsonArray widgets, PanelConfig config, string projectRoot)
+    {
+        using var document = JsonDocument.Parse(widgets.ToJsonString(), DocumentOptions);
+        var validator = new Validator(projectRoot, []);
+        validator.Know(config);
+        return validator.ReadWidgets(document.RootElement, "");
+    }
+
     // у сообщений System.Text.Json в конце идут служебные "Path: … | LineNumber: … | BytePositionInLine: …"
     static string CleanMessage(string message)
     {
@@ -79,6 +91,14 @@ public static partial class PanelLoader
         // имена, на которые можно ссылаться; собираются заранее, чтобы порядок разделов в файле не имел значения
         readonly HashSet<string> _services = [], _actions = [], _values = [];
         int _errors;
+
+        /// <summary>Имена из уже прочитанной конфигурации — на них могут ссылаться проверяемые виджеты.</summary>
+        public void Know(PanelConfig config)
+        {
+            foreach (var service in config.Services) _services.Add(service.Name);
+            foreach (var action in config.Actions) _actions.Add(action.Name);
+            foreach (var value in config.Values) _values.Add(value.Name);
+        }
 
         // ───────── сообщения ─────────
 
