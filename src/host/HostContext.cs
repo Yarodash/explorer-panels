@@ -24,8 +24,24 @@ sealed class HostContext : ApplicationContext
     // чтобы проверочный экземпляр не трогал окна пользователя.
     readonly long _onlyWindow = long.TryParse(Environment.GetEnvironmentVariable("EXPLORER_PANEL_ONLY"), out long only) ? only : 0;
 
+    static readonly TimeSpan ReleaseEngineAfter = TimeSpan.FromMinutes(5);
+    DateTime _lastVisible = DateTime.UtcNow; // когда в последний раз была видна хоть одна панель
+    bool _paused;
+    Tray? _tray;
+
     public TrustStore Trust { get; } = new(AppPaths.TrustFile);
     public ProjectRegistry Projects { get; }
+
+    /// <summary>Пауза из меню в трее: все панели скрыты, серверы продолжают работать.</summary>
+    public bool Paused
+    {
+        get => _paused;
+        set
+        {
+            _paused = value;
+            Rescan();
+        }
+    }
 
     public HostContext()
     {
@@ -44,6 +60,8 @@ sealed class HostContext : ApplicationContext
 
         _refresh.Tick += (_, _) => RefreshProjects();
         _refresh.Start();
+
+        _tray = new Tray(this);
     }
 
     /// <summary>Выполняет действие в потоке окон (можно вызывать из любого потока).</summary>
@@ -80,7 +98,7 @@ sealed class HostContext : ApplicationContext
             var project = Projects.ForFolder(view.Folder);
             // Панель показывается, если у папки есть рабочий panel.json, папка не запрещена и окно не свёрнуто.
             // Для папки, о которой владелец ещё не решал, страница показывает вопрос «разрешить?».
-            bool show = project is { Config: not null } && project.Trusted != false && !view.Minimized
+            bool show = !_paused && project is { Config: not null } && project.Trusted != false && !view.Minimized
                         && ProjectLocator.Applies(project.Root, view.Folder!, project.Config.Scope);
 
             if (!_windows.TryGetValue(view.Window, out var window))
@@ -104,6 +122,17 @@ sealed class HostContext : ApplicationContext
         }
 
         foreach (var project in Projects.All) project.SetActive(visible.Contains(project));
+
+        // Экономия в простое: если панелей давно не видно, окна с браузерным движком закрываются.
+        // Понадобятся снова — создадутся заново.
+        if (visible.Count > 0) _lastVisible = DateTime.UtcNow;
+        else if (_windows.Count > 0 && DateTime.UtcNow - _lastVisible > ReleaseEngineAfter)
+        {
+            foreach (var window in _windows.Values) window.Dispose();
+            _windows.Clear();
+            _shown.Clear();
+            Log.Write("no panels visible for a while: browser engine released");
+        }
     }
 
     string StateMessage(Project project) =>
@@ -169,6 +198,7 @@ sealed class HostContext : ApplicationContext
     {
         if (disposing)
         {
+            _tray?.Dispose();
             _refresh.Dispose();
             _tracker.Dispose();
             foreach (var window in _windows.Values) window.Dispose();
