@@ -28,6 +28,7 @@ sealed class HostContext : ApplicationContext
     DateTime _lastVisible = DateTime.UtcNow; // когда в последний раз была видна хоть одна панель
     bool _paused;
     Tray? _tray;
+    ApiServer? _api;
 
     public TrustStore Trust { get; } = new(AppPaths.TrustFile);
     public ProjectRegistry Projects { get; }
@@ -62,6 +63,11 @@ sealed class HostContext : ApplicationContext
         _refresh.Start();
 
         _tray = new Tray(this);
+
+        // местный интерфейс для команды explorer-panel и внешних программ
+        _api = new ApiServer(new HostApi(this), AppPaths.HostInfoFile);
+        try { _api.Start(); }
+        catch (Exception ex) { Log.Write("local interface did not start: " + ex.Message); }
     }
 
     /// <summary>Выполняет действие в потоке окон (можно вызывать из любого потока).</summary>
@@ -198,6 +204,7 @@ sealed class HostContext : ApplicationContext
     {
         if (disposing)
         {
+            _api?.Dispose();
             _tray?.Dispose();
             _refresh.Dispose();
             _tracker.Dispose();
