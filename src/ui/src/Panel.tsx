@@ -23,8 +23,8 @@ const isPinned = (widget: Widget) => widget.type === "status" || widget.pin === 
 
 /**
  * Следит, помещаются ли виджеты в отведённую ширину (холст = область файлов Проводника).
- * Ширина каждого виджета запоминается, пока он виден: спрятанный виджет измерить нельзя,
- * а знать, поместится ли он обратно, нужно.
+ * Спрятанный виджет остаётся в разметке невидимым и вне потока — так его ширину всегда можно измерить
+ * и точно сказать, насколько нужно расширить окно, чтобы поместилось всё.
  */
 function useFit(widgets: Widget[]) {
   const elements = useRef<(HTMLElement | null)[]>([])
@@ -38,10 +38,7 @@ function useFit(widgets: Widget[]) {
   }, [])
 
   useLayoutEffect(() => {
-    const measured = widgets.map((_, i) => {
-      const width = elements.current[i]?.offsetWidth ?? 0
-      return width > 0 ? width : (widths[i] ?? 0)
-    })
+    const measured = widgets.map((_, i) => elements.current[i]?.offsetWidth ?? 0)
     if (measured.length !== widths.length || measured.some((width, i) => width !== widths[i])) setWidths(measured)
   })
 
@@ -108,7 +105,13 @@ function Panel() {
           ref={(element) => {
             fit.elements.current[i] = element
           }}
-          className={fit.visible[i] ? "flex shrink-0 items-center empty:hidden" : "hidden"}
+          data-hidden={fit.visible[i] ? undefined : true}
+          aria-hidden={fit.visible[i] ? undefined : true}
+          className={
+            fit.visible[i]
+              ? "flex shrink-0 items-center empty:hidden"
+              : "pointer-events-none invisible absolute flex shrink-0 items-center"
+          }
         >
           <WidgetView widget={widget} />
         </span>

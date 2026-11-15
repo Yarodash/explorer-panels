@@ -20,9 +20,11 @@ sealed class HostContext : ApplicationContext
     readonly string _locale = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ru" ? "ru" : "en";
     int _tick;
 
-    // Для сквозных проверок: EXPLORER_PANEL_ONLY=<номер окна> ограничивает программу одним окном Проводника,
-    // чтобы проверочный экземпляр не трогал окна пользователя.
-    readonly long _onlyWindow = long.TryParse(Environment.GetEnvironmentVariable("EXPLORER_PANEL_ONLY"), out long only) ? only : 0;
+    // Для сквозных проверок: EXPLORER_PANEL_ONLY_UNDER=<папка> ограничивает программу окнами Проводника,
+    // открытыми в этой папке и её подпапках, — проверочный экземпляр не трогает окна пользователя.
+    readonly string? _onlyUnder = Environment.GetEnvironmentVariable("EXPLORER_PANEL_ONLY_UNDER") is { Length: > 0 } under
+        ? ProjectLocator.Normalize(under)
+        : null;
 
     static readonly TimeSpan ReleaseEngineAfter = TimeSpan.FromMinutes(5);
     DateTime _lastVisible = DateTime.UtcNow; // когда в последний раз была видна хоть одна панель
@@ -88,7 +90,9 @@ sealed class HostContext : ApplicationContext
 
     void OnExplorerChanged(IReadOnlyList<ExplorerView> views)
     {
-        if (_onlyWindow != 0) views = views.Where(v => v.Window.ToInt64() == _onlyWindow).ToList();
+        if (_onlyUnder != null)
+            views = views.Where(v => v.Folder != null && Path.IsPathFullyQualified(v.Folder)
+                                     && ProjectLocator.Applies(_onlyUnder, v.Folder, "tree")).ToList();
 
         // окна панелей, чей Проводник закрылся
         foreach (var explorer in _windows.Keys.Except(views.Select(v => v.Window)).ToList())
