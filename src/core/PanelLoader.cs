@@ -21,9 +21,6 @@ public static partial class PanelLoader
     [GeneratedRegex(@"^[A-Za-z0-9_-]+$")]
     private static partial Regex NamePattern();
 
-    [GeneratedRegex(@"\{([A-Za-z0-9_-]+)\}")]
-    private static partial Regex PlaceholderPattern();
-
     public static string PanelFile(string projectRoot) => Path.Combine(projectRoot, DirName, FileName);
 
     public static LoadResult LoadFile(string projectRoot)
@@ -200,9 +197,8 @@ public static partial class PanelLoader
         void Placeholders(string? text, string path, bool allowDate = false)
         {
             if (text == null) return;
-            foreach (Match match in PlaceholderPattern().Matches(text))
+            foreach (var name in Template.Names(text))
             {
-                var name = match.Groups[1].Value;
                 if (allowDate && name == "date") continue;
                 ValueRef(name, path);
             }
