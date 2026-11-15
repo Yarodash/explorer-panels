@@ -1,21 +1,29 @@
 {
   "version": 1,
   "actions": {
-    "build": { "run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\build.ps1" },
-    "install": { "run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\\install.ps1" },
+    "build": { "run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\build.ps1" },
+    "install": { "run": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts\install.ps1" },
     "tests": { "run": "dotnet test ExplorerPanels.slnx --nologo -v q" },
-    "example": { "open": "examples\\fastapi-react" }
+    "example": { "open": "examples\fastapi-react" },
+    "fetch": { "run": "git fetch --all --prune" },
+    "pull": { "run": "git pull --ff-only" }
   },
   "values": {
-    "branch": { "run": "git branch --show-current", "every": 20 }
+    "branch": { "run": "git branch --show-current", "every": 15 },
+    "git": { "run": "python .explorer_components/handlers/git_status.py", "every": 15 }
   },
   "widgets": [
-    { "type": "text", "icon": "git-branch", "text": "{branch}" },
+    { "type": "text", "icon": "git-branch", "text": "{branch}", "tooltip": "Current branch" },
+    { "type": "slot", "value": "git" },
     { "type": "separator" },
     { "type": "button", "icon": "hammer", "tooltip": "Build (scripts/build.ps1)", "do": "build" },
     { "type": "button", "icon": "flask-conical", "tooltip": "Run the tests", "do": "tests" },
     { "type": "button", "icon": "download", "tooltip": "Build and install", "do": "install" },
     { "type": "button", "icon": "folder-open", "tooltip": "Open the example project", "do": "example", "pin": true },
-    { "type": "button", "icon": "file-text", "tooltip": "Logs", "do": "logs", "pin": true }
+    { "type": "menu", "icon": "ellipsis", "tooltip": "More", "items": [
+      { "label": "git fetch", "do": "fetch" },
+      { "label": "git pull", "do": "pull" },
+      { "label": "Logs", "do": "logs" }
+    ] }
   ]
 }

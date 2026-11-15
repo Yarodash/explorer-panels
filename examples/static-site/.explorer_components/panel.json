@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "scope": "folder",
+  "services": {
+    "site": { "run": "python -m http.server 8080", "health": "http://localhost:8080" }
+  },
+  "actions": {
+    "open": { "open": "http://localhost:8080", "needs": ["site"] }
+  }
+}

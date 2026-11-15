@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "actions": {
+    "pull": { "run": "git pull --ff-only" },
+    "fetch": { "run": "git fetch --all --prune" }
+  },
+  "values": {
+    "branch": { "run": "git branch --show-current", "every": 15 },
+    "git": { "run": "python .explorer_components/handlers/git_status.py", "every": 15 }
+  },
+  "widgets": [
+    { "type": "text", "icon": "git-branch", "text": "{branch}", "tooltip": "Current branch" },
+    { "type": "slot", "value": "git" },
+    { "type": "separator" },
+    { "type": "button", "icon": "refresh-cw", "tooltip": "git fetch", "do": "fetch" },
+    { "type": "button", "icon": "arrow-down-to-line", "tooltip": "git pull", "do": "pull", "pin": true },
+    { "type": "button", "icon": "file-text", "tooltip": "Logs", "do": "logs" }
+  ]
+}

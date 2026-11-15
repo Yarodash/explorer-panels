@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "services": {
+    "stack": {
+      "run": "docker compose up -d",
+      "stop": "docker compose down",
+      "health": "http://localhost:8080"
+    }
+  },
+  "actions": {
+    "site": { "open": "http://localhost:8080", "needs": ["stack"] },
+    "rebuild": { "run": "docker compose build" },
+    "ps": { "run": "docker compose ps" }
+  },
+  "widgets": [
+    { "type": "status", "service": "stack" },
+    { "type": "separator" },
+    { "type": "button", "icon": "play", "tooltip": "docker compose up -d", "do": "start", "pin": true },
+    { "type": "button", "icon": "globe", "tooltip": "Open the site", "do": "site", "pin": true },
+    { "type": "button", "icon": "square", "tooltip": "docker compose down", "do": "stop", "pin": true },
+    { "type": "button", "icon": "hammer", "tooltip": "docker compose build", "do": "rebuild" },
+    { "type": "button", "icon": "file-text", "tooltip": "Logs", "do": "logs" }
+  ]
+}

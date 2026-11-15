@@ -1,0 +1,183 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Yarodash/explorer-panels/schema/panel.schema.json",
+  "title": "Explorer Panels — panel.json",
+  "description": "Describes the control panel shown in Windows File Explorer for a project folder. The authoritative check is `explorer-panel check`.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1, "description": "Format version." },
+    "scope": {
+      "enum": ["tree", "folder"],
+      "default": "tree",
+      "description": "tree: show the panel in the project root and all subfolders. folder: only in the root."
+    },
+    "services": {
+      "type": "object",
+      "description": "Long-running processes.",
+      "propertyNames": { "$ref": "#/definitions/name" },
+      "additionalProperties": { "$ref": "#/definitions/service" }
+    },
+    "actions": {
+      "type": "object",
+      "description": "One-shot actions. start, stop, restart and logs are built in and cannot be redefined.",
+      "propertyNames": { "$ref": "#/definitions/name" },
+      "additionalProperties": { "$ref": "#/definitions/action" }
+    },
+    "values": {
+      "type": "object",
+      "description": "Named values shown by widgets and substituted as {name}.",
+      "propertyNames": { "$ref": "#/definitions/name" },
+      "additionalProperties": { "$ref": "#/definitions/value" }
+    },
+    "widgets": {
+      "type": "array",
+      "description": "What the panel shows, left to right. If absent, a default layout is built.",
+      "items": { "$ref": "#/definitions/widget" }
+    }
+  },
+  "definitions": {
+    "name": { "type": "string", "pattern": "^[A-Za-z0-9_-]+$" },
+    "command": { "type": "string", "minLength": 1, "description": "Runs through cmd.exe from the project root (or cwd)." },
+    "env": { "type": "object", "additionalProperties": { "type": "string" } },
+    "actionName": {
+      "type": "string",
+      "minLength": 1,
+      "description": "An action from \"actions\", or a built-in one: start, stop, restart, logs, start:service, stop:service, restart:service."
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["run"],
+      "properties": {
+        "run": { "$ref": "#/definitions/command" },
+        "cwd": { "type": "string", "description": "Folder relative to the project root." },
+        "env": { "$ref": "#/definitions/env" },
+        "health": {
+          "description": "How to tell the service is up: a URL, or a command that exits with 0.",
+          "oneOf": [
+            { "type": "string", "pattern": "^https?://" },
+            { "type": "object", "additionalProperties": false, "required": ["run"], "properties": { "run": { "$ref": "#/definitions/command" } } }
+          ]
+        },
+        "stop": { "$ref": "#/definitions/command" }
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run": { "$ref": "#/definitions/command" },
+        "open": { "type": "string", "minLength": 1, "description": "Address, file or folder to open." },
+        "cwd": { "type": "string" },
+        "env": { "$ref": "#/definitions/env" },
+        "needs": { "type": "array", "items": { "type": "string" }, "description": "Services that must be running first." }
+      },
+      "oneOf": [{ "required": ["run"] }, { "required": ["open"] }]
+    },
+    "value": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "run": { "$ref": "#/definitions/command" },
+        "every": { "type": "number", "exclusiveMinimum": 0, "default": 30, "description": "Seconds between runs." },
+        "cwd": { "type": "string" },
+        "default": { "description": "Initial value of a stored value." }
+      }
+    },
+    "widgetType": {
+      "enum": ["status", "button", "text", "toggle", "select", "progress", "menu", "clock", "stopwatch", "calendar", "separator", "slot"]
+    },
+    "widget": {
+      "type": "object",
+      "required": ["type"],
+      "properties": {
+        "type": { "$ref": "#/definitions/widgetType" },
+        "tooltip": { "type": "string" },
+        "pin": { "type": "boolean", "description": "Keep when the panel is collapsed or too wide." }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "status" } } },
+          "then": {
+            "properties": { "service": { "type": "string" }, "value": { "type": "string" }, "label": { "type": "string" } },
+            "oneOf": [{ "required": ["service"] }, { "required": ["value"] }]
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "button" } } },
+          "then": {
+            "required": ["do"],
+            "properties": { "icon": { "type": "string" }, "label": { "type": "string" }, "do": { "$ref": "#/definitions/actionName" } },
+            "anyOf": [{ "required": ["icon"] }, { "required": ["label"] }]
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "text" } } },
+          "then": { "required": ["text"], "properties": { "text": { "type": "string" }, "icon": { "type": "string" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "toggle" } } },
+          "then": {
+            "required": ["value"],
+            "properties": {
+              "value": { "type": "string" },
+              "label": { "type": "string" },
+              "on": { "$ref": "#/definitions/actionName" },
+              "off": { "$ref": "#/definitions/actionName" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "select" } } },
+          "then": {
+            "required": ["value", "options"],
+            "properties": {
+              "value": { "type": "string" },
+              "options": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+              "do": { "$ref": "#/definitions/actionName" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "progress" } } },
+          "then": { "required": ["value"], "properties": { "value": { "type": "string" }, "label": { "type": "string" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "menu" } } },
+          "then": {
+            "required": ["items"],
+            "properties": {
+              "icon": { "type": "string" },
+              "label": { "type": "string" },
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["label", "do"],
+                  "properties": { "label": { "type": "string" }, "do": { "$ref": "#/definitions/actionName" }, "icon": { "type": "string" } }
+                }
+              }
+            },
+            "anyOf": [{ "required": ["icon"] }, { "required": ["label"] }]
+          }
+        },
+        {
+          "if": { "properties": { "type": { "const": "clock" } } },
+          "then": { "properties": { "seconds": { "type": "boolean" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "calendar" } } },
+          "then": { "required": ["do"], "properties": { "do": { "$ref": "#/definitions/actionName" }, "icon": { "type": "string" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "slot" } } },
+          "then": { "required": ["value"], "properties": { "value": { "type": "string" } } }
+        }
+      ]
+    }
+  }
+}

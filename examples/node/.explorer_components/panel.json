@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "services": {
+    "dev": { "run": "npm run dev", "health": "http://localhost:3000" }
+  },
+  "actions": {
+    "site": { "open": "http://localhost:3000", "needs": ["dev"] },
+    "test": { "run": "npm test" },
+    "build": { "run": "npm run build" },
+    "install": { "run": "npm install" }
+  },
+  "widgets": [
+    { "type": "status", "service": "dev" },
+    { "type": "separator" },
+    { "type": "button", "icon": "play", "tooltip": "Start the dev server", "do": "start", "pin": true },
+    { "type": "button", "icon": "globe", "tooltip": "Open the site", "do": "site", "pin": true },
+    { "type": "button", "icon": "square", "tooltip": "Stop the dev server", "do": "stop", "pin": true },
+    { "type": "button", "icon": "flask-conical", "tooltip": "npm test", "do": "test" },
+    { "type": "button", "icon": "hammer", "tooltip": "npm run build", "do": "build" },
+    { "type": "menu", "icon": "ellipsis", "tooltip": "More", "items": [
+      { "label": "npm install", "do": "install" },
+      { "label": "Restart the dev server", "do": "restart" },
+      { "label": "Logs", "do": "logs" }
+    ] }
+  ]
+}
