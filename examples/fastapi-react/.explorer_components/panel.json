@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "services": {
+    "api": {
+      "run": "python -m uvicorn main:app --port 8000",
+      "cwd": "backend",
+      "health": "http://localhost:8000/api/hello"
+    },
+    "web": {
+      "run": "npm run dev -- --port 5173 --strictPort",
+      "cwd": "frontend",
+      "health": "http://localhost:5173"
+    }
+  },
+  "actions": {
+    "site": { "open": "http://localhost:5173", "needs": ["api", "web"] },
+    "docs": { "open": "http://localhost:8000/docs", "needs": ["api"] }
+  },
+  "widgets": [
+    { "type": "status", "service": "api" },
+    { "type": "status", "service": "web" },
+    { "type": "separator" },
+    { "type": "button", "icon": "play", "tooltip": "Start servers", "do": "start", "pin": true },
+    { "type": "button", "icon": "globe", "tooltip": "Open the site", "do": "site", "pin": true },
+    { "type": "button", "icon": "square", "tooltip": "Stop servers", "do": "stop", "pin": true },
+    { "type": "button", "icon": "file-text", "tooltip": "Logs", "do": "logs" },
+    { "type": "menu", "icon": "ellipsis", "tooltip": "More", "items": [
+      { "label": "Restart servers", "do": "restart" },
+      { "label": "API docs (Swagger)", "do": "docs" }
+    ] }
+  ]
+}

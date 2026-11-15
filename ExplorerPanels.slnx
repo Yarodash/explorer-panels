@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/cli/">
+    <Project Path="src/cli/ExplorerPanel.Cli.csproj" />
+  </Folder>
+  <Folder Name="/src/core/">
+    <Project Path="src/core/ExplorerPanel.Core.csproj" />
+  </Folder>
+  <Folder Name="/src/host/">
+    <Project Path="src/host/ExplorerPanel.Host.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/ExplorerPanel.Tests/ExplorerPanel.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,10 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Ядро: разбор и проверка panel.json, подстановки, доверие, правила статусов, клиент местного интерфейса.
+       Без окон и без запуска процессов — поэтому целиком покрывается модульными тестами. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <RootNamespace>ExplorerPanel.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>

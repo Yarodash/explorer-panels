@@ -1,0 +1,19 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Фоновая программа: следит за Проводником, показывает панели, запускает серверы, держит значок в трее. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>explorer-panel-host</AssemblyName>
+    <RootNamespace>ExplorerPanel.Host</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+    <ProjectReference Include="..\core\ExplorerPanel.Core.csproj" />
+    <InternalsVisibleTo Include="ExplorerPanel.Tests" />
+  </ItemGroup>
+
+</Project>
