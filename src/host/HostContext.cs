@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ExplorerPanel.Core;
+using ExplorerPanel.Core.Api;
 
 namespace ExplorerPanel.Host;
 
@@ -21,6 +22,13 @@ sealed class HostContext : ApplicationContext
     /// <param name="Folder">Папка, открытая в окне (в ней кнопки Claude открывают терминал).</param>
     /// <param name="Claude">Показаны ли кнопки Claude.</param>
     sealed record Shown(Project? Project, string Folder, bool Claude);
+
+    /// <summary>Что известно о папке с диска: к какому проекту она относится, прочитана ли его панель, существует ли папка.</summary>
+    /// <param name="HasPanel">У проекта есть рабочий panel.json. Входит в ответ, чтобы появление панели сразу вызывало сверку окон.</param>
+    sealed record FolderFacts(Project? Project, bool HasPanel, bool Exists);
+
+    // Обращаться к диску в потоке окон нельзя: зависшая сетевая папка заморозила бы все панели (см. FolderProbe).
+    readonly FolderProbe<FolderFacts> _folders;
     readonly System.Windows.Forms.Timer _refresh = new() { Interval = 700 };
     readonly string _uiFolder;
     readonly string _locale = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ru" ? "ru" : "en";
@@ -90,6 +98,12 @@ sealed class HostContext : ApplicationContext
 
         Projects = new ProjectRegistry(Trust, new WindowsShell());
         Projects.Changed += project => RunOnUi(() => PushState(project));
+        _folders = new FolderProbe<FolderFacts>(folder =>
+        {
+            var project = Projects.ForFolder(folder);
+            return new FolderFacts(project, project?.Config != null, ClaudeLauncher.CanOpenIn(folder));
+        });
+        _folders.Updated += () => RunOnUi(Rescan);
 
         _tracker.Changed += OnExplorerChanged;
         _tracker.Moved += explorer => { if (_windows.TryGetValue(explorer, out var window)) window.Reposition(); };
@@ -139,14 +153,15 @@ sealed class HostContext : ApplicationContext
         var visible = new HashSet<Project>();
         foreach (var view in views)
         {
-            var project = Projects.ForFolder(view.Folder);
+            var facts = FactsFor(view.Folder);
+            var project = facts?.Project;
             bool usable = Enabled && !view.Minimized;
             // Панель проекта показывается, если у папки есть рабочий panel.json и папка не запрещена.
             // Для папки, о которой владелец ещё не решал, страница показывает вопрос «разрешить?».
             bool panel = usable && project is { Config: not null } && project.Trusted != false
                          && ProjectLocator.Applies(project.Root, view.Folder!, project.Config.Scope);
             // Кнопки Claude — в любой настоящей папке, есть у неё панель или нет.
-            bool claude = usable && ClaudeButtons && ClaudeLauncher.CanOpenIn(view.Folder);
+            bool claude = usable && ClaudeButtons && facts is { Exists: true };
             bool show = panel || claude;
 
             if (!_windows.TryGetValue(view.Window, out var window))
@@ -185,6 +200,14 @@ sealed class HostContext : ApplicationContext
 
         StateChanged?.Invoke();
     }
+
+    // Последние известные сведения о папке; null — это не папка на диске либо ответа ещё нет
+    // (когда он придёт, окна будут сверены заново).
+    FolderFacts? FactsFor(string? folder) =>
+        !string.IsNullOrEmpty(folder) && !folder.StartsWith("::") && Path.IsPathFullyQualified(folder)
+        && _folders.Get(folder) is { Known: true, Value: { } facts }
+            ? facts
+            : null;
 
     string StateMessage(Shown shown)
     {
@@ -237,9 +260,37 @@ sealed class HostContext : ApplicationContext
                 project.SetCollapsed(message.GetProperty("collapsed").GetBoolean());
                 break;
             case "error":
-                project.LastError = message.GetProperty("message").GetString();
+                // пустое сообщение — «панель снова нарисовалась»
+                project.LastError = message.GetProperty("message").GetString() is { Length: > 0 } text ? text : null;
                 break;
         }
+    }
+
+    /// <summary>
+    /// Сохраняет в файл снимок панели, показанной для этой папки (можно вызывать из любого потока).
+    /// Снимок делает сама страница панели, а не экран: на нём только панель, даже если её окно чем-то закрыто.
+    /// </summary>
+    public Task<ApiResult> CaptureAsync(string folder, string file)
+    {
+        var project = Projects.ForFolder(folder);
+        var normalized = ProjectLocator.Normalize(folder);
+        var done = new TaskCompletionSource<ApiResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        RunOnUi(async () =>
+        {
+            try
+            {
+                // окно, где показана панель этого проекта; для папки без панели — окно, открытое именно в ней
+                var explorer = _shown.FirstOrDefault(pair => project != null
+                    ? pair.Value.Project == project
+                    : string.Equals(ProjectLocator.Normalize(pair.Value.Folder), normalized, StringComparison.OrdinalIgnoreCase)).Key;
+                if (explorer == IntPtr.Zero || !_windows.TryGetValue(explorer, out var window))
+                    done.TrySetResult(new ApiResult(false,
+                        $"no File Explorer window shows a panel for {folder}; open the folder in File Explorer first (explorer.exe \"{folder}\")"));
+                else done.TrySetResult(await window.CaptureAsync(file));
+            }
+            catch (Exception ex) { done.TrySetResult(new ApiResult(false, ex.Message)); }
+        });
+        return done.Task;
     }
 
     // Папку страница не присылает: Claude открывается в той, что программа сама видит в окне Проводника.

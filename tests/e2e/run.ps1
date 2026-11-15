@@ -165,6 +165,17 @@ try {
   Check "a panel command does not inherit the launching terminal's variables" (($seen.Count -gt 10) -and ($seen -notcontains "EP_E2E_INHERITED") -and ($seen -notcontains "CLAUDE_CODE_CHILD_SESSION")) ("variables: " + $seen.Count)
   Check "a panel command still has the user's usual variables" (($seen -contains "USERPROFILE") -and (@($seen | Where-Object { $_ -ieq "Path" }).Count -eq 1))
 
+  # 10c. снимок панели в файл: его делает сама страница, а не экран
+  function IsPng([string]$File) { (Test-Path $File) -and ((Get-Item $File).Length -gt 500) -and (([IO.File]::ReadAllBytes($File)[1..3] -join ",") -eq "80,78,71") }
+  $panelShot = Join-Path $base "panel shot.png"
+  $shotOutput = (& $ctx.Cli screenshot $project --out $panelShot) -join "`n"
+  Check "explorer-panel screenshot saves a picture of the panel" (($LASTEXITCODE -eq 0) -and (IsPng $panelShot)) $shotOutput
+  & $ctx.Cli screenshot $project | Out-Null
+  Check "without a file name the picture goes next to the project's logs" (IsPng (Join-Path $project ".explorer_components\logs\panel.png"))
+  $noWindow = (& $ctx.Cli screenshot $plain 2>&1 | ForEach-Object { "$_" }) -join " "
+  Check "a folder that is not open in File Explorer gets an explanation, not a picture" (($LASTEXITCODE -eq 1) -and ($noWindow -match "open the folder in File Explorer")) $noWindow
+  Write-Host "panel shot: $panelShot"
+
   # 11. не помещается -> кнопка расширения
   $wide = $Win::Rect($explorer).W
   Resize-TestExplorer $explorer (-($wide - 620)) 0

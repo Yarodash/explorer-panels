@@ -28,9 +28,14 @@ export function display(value: unknown): string {
   return JSON.stringify(value)
 }
 
-/** Заменяет {имя} в тексте текущими значениями; неизвестное имя — пустой строкой. */
+/**
+ * Заменяет {имя} в тексте текущими значениями; неизвестное имя — пустой строкой.
+ * Удвоенная скобка — буквальная: "{{" даёт "{", "}}" даёт "}" (так же, как в командах panel.json).
+ */
 export function fillText(text: string, values: Record<string, unknown>): string {
-  return text.replace(/\{([A-Za-z0-9_-]+)\}/g, (_, name: string) => display(values[name]))
+  return text.replace(/\{\{|\}\}|\{([A-Za-z0-9_-]+)\}/g, (match: string, name?: string) =>
+    name === undefined ? match[0] : display(values[name])
+  )
 }
 
 /** Поле виджета как строка (или undefined, если его нет либо оно другого типа). */

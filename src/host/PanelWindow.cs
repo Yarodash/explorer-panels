@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ExplorerPanel.Core;
+using ExplorerPanel.Core.Api;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
@@ -31,8 +32,12 @@ sealed class PanelWindow : IDisposable
     static readonly List<PanelWindow> Live = [];
     static System.Windows.Forms.Timer? _debugTimer;
 
+    // через сколько пробовать снова, если браузерный движок не запустился
+    static readonly TimeSpan[] EngineRetryDelays =
+        [TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30), TimeSpan.FromMinutes(1)];
+
     readonly CanvasForm _form;
-    readonly WebView2 _web;
+    WebView2 _web;
     string? _state;      // последнее состояние; отправляется странице, как только она готова
     bool _pageReady, _disposed;
 
@@ -84,8 +89,7 @@ sealed class PanelWindow : IDisposable
     {
         Explorer = explorer;
         _form = new CanvasForm(explorer);
-        _web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.Transparent };
-        _form.Controls.Add(_web);
+        _web = NewWebView();
         _form.FormClosed += (_, _) => { _disposed = true; Live.Remove(this); };
 
         _ = _form.Handle; // создаёт окно
@@ -97,16 +101,40 @@ sealed class PanelWindow : IDisposable
 
     IntPtr Hwnd => _form.Handle;
 
+    WebView2 NewWebView()
+    {
+        var web = new WebView2 { Dock = DockStyle.Fill, DefaultBackgroundColor = Color.Transparent };
+        _form.Controls.Add(web);
+        return web;
+    }
+
     public bool Alive => !_disposed && !_form.IsDisposed && Native.IsWindow(_form.Handle);
 
     double Scale => Native.GetDpiForWindow(Explorer) / 96.0;
 
-    async Task InitAsync(string uiFolder)
+    // Движок может не запуститься с первого раза (обновляется, занят, не хватило памяти). Раньше панель после
+    // этого оставалась пустой до перезапуска программы; теперь запуск повторяется, пока окно панели существует.
+    Task InitAsync(string uiFolder)
     {
-        try
+        bool failedBefore = false;
+        return Retry.UntilDone(async () =>
         {
-            _environment ??= CoreWebView2Environment.CreateAsync(null, Path.Combine(AppPaths.DataDir, "WebView2"));
-            await _web.EnsureCoreWebView2Async(await _environment);
+            if (failedBefore)
+            {
+                // после неудачи — новый элемент с движком: прежний мог остаться в неопределённом состоянии
+                _form.Controls.Remove(_web);
+                _web.Dispose();
+                _web = NewWebView();
+            }
+            failedBefore = true;
+
+            var environment = _environment ??= CoreWebView2Environment.CreateAsync(null, Path.Combine(AppPaths.DataDir, "WebView2"));
+            try { await _web.EnsureCoreWebView2Async(await environment); }
+            catch
+            {
+                if (_environment == environment) _environment = null; // неудавшуюся среду не запоминаем
+                throw;
+            }
             if (_disposed) return;
 
             // собранная страница отдаётся как https://panel.local/
@@ -118,11 +146,11 @@ sealed class PanelWindow : IDisposable
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
             core.WebMessageReceived += OnMessage;
             core.Navigate("https://panel.local/index.html");
-        }
-        catch (Exception ex)
-        {
-            Log.Write($"panel window for 0x{Explorer:X}: browser engine failed to start: {ex}");
-        }
+        },
+        stop: () => _disposed,
+        delays: EngineRetryDelays,
+        onFailure: (ex, wait) => Log.Write(
+            $"panel window for 0x{Explorer:X}: browser engine failed to start, next try in {wait.TotalSeconds:0} s: {ex.Message}"));
     }
 
     // ───────── обмен со страницей ─────────
@@ -168,6 +196,51 @@ sealed class PanelWindow : IDisposable
         {
             Log.Write("page message failed: " + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// Сохраняет снимок панели в файл PNG. Снимок делает сам браузерный движок, поэтому на нём только панель
+    /// (вместе с открытым меню или подсказкой), даже если окно закрыто другим. Фон — тёмный, как у Проводника:
+    /// сама страница прозрачная.
+    /// </summary>
+    public async Task<ApiResult> CaptureAsync(string file)
+    {
+        if (!Alive || !_pageReady || _web.CoreWebView2 is not { } core)
+            return new ApiResult(false, "the panel page is not ready yet; try again in a moment");
+
+        // границы всего видимого на странице, с запасом под тень (целые числа: дробные зависели бы от языка системы)
+        const string bounds = """
+            (() => {
+              const parts = [...document.querySelectorAll('[data-panel], body > :not(#root):not(script):not(style)')]
+                .map(e => e.getBoundingClientRect()).filter(r => r.width >= 2 && r.height >= 2)
+              if (!parts.length) return null
+              const pad = 14
+              const left = Math.max(0, Math.floor(Math.min(...parts.map(r => r.left)) - pad))
+              const top = Math.max(0, Math.floor(Math.min(...parts.map(r => r.top)) - pad))
+              const right = Math.min(innerWidth, Math.ceil(Math.max(...parts.map(r => r.right)) + pad))
+              const bottom = Math.min(innerHeight, Math.ceil(Math.max(...parts.map(r => r.bottom)) + pad))
+              return [left, top, right - left, bottom - top]
+            })()
+            """;
+        using var rect = JsonDocument.Parse(await core.ExecuteScriptAsync(bounds));
+        if (rect.RootElement.ValueKind != JsonValueKind.Array) return new ApiResult(false, "the panel shows nothing right now");
+        int x = rect.RootElement[0].GetInt32(), y = rect.RootElement[1].GetInt32(), width = rect.RootElement[2].GetInt32(), height = rect.RootElement[3].GetInt32();
+
+        var answer = await core.CallDevToolsProtocolMethodAsync("Page.captureScreenshot",
+            $"{{\"format\":\"png\",\"clip\":{{\"x\":{x},\"y\":{y},\"width\":{width},\"height\":{height},\"scale\":1}}}}");
+        using var parsed = JsonDocument.Parse(answer);
+        var png = Convert.FromBase64String(parsed.RootElement.GetProperty("data").GetString()!);
+
+        using var picture = Image.FromStream(new MemoryStream(png));
+        using var canvas = new Bitmap(picture.Width, picture.Height);
+        using (var graphics = Graphics.FromImage(canvas))
+        {
+            graphics.Clear(Color.FromArgb(0x20, 0x20, 0x20));
+            graphics.DrawImage(picture, 0, 0, picture.Width, picture.Height);
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(file))!);
+        canvas.Save(file, System.Drawing.Imaging.ImageFormat.Png);
+        return new ApiResult(true);
     }
 
     // ───────── положение, видимость, порядок окон ─────────

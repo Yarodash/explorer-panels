@@ -104,10 +104,16 @@ static class CommandRunner
         StartCore(command, cwd, env, onLine).Process;
 
     /// <summary>Выполняет команду до конца и возвращает код возврата и весь вывод. По истечении времени завершает её.</summary>
-    public static async Task<CommandResult> RunAsync(string command, string cwd, IReadOnlyDictionary<string, string> env, TimeSpan timeout)
+    /// <param name="onLine">Получает каждую строку вывода сразу, не дожидаясь конца команды (например, чтобы писать её в лог).</param>
+    public static async Task<CommandResult> RunAsync(string command, string cwd, IReadOnlyDictionary<string, string> env, TimeSpan timeout,
+        Action<string>? onLine = null)
     {
         var text = new StringBuilder();
-        void Add(string line) { lock (text) text.AppendLine(line); }
+        void Add(string line)
+        {
+            lock (text) text.AppendLine(line);
+            onLine?.Invoke(line);
+        }
 
         var (process, output) = StartCore(command, cwd, env, Add);
         using (process)

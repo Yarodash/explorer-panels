@@ -1,6 +1,6 @@
 // Сама панель: рамка, кнопка сворачивания, виджеты и правило «не помещается — прячем целиком».
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { Component, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { ChevronLeft, ChevronRight, MoveHorizontal, ShieldQuestion, TriangleAlert } from "lucide-react"
 
 import { send, type PanelState, type Widget } from "@/bridge"
@@ -57,9 +57,40 @@ function useFit(widgets: Widget[]) {
   return { elements, visible, cramped: visible.includes(false), neededWidth }
 }
 
+// страница сообщила программе об ошибке рисования и ещё не сообщила, что всё снова в порядке
+let errorReported = false
+
+/**
+ * Если панель не удалось нарисовать, вместо пустого места без объяснений программа узнаёт причину
+ * (её показывает explorer-panel check), а на экране остаётся то, что от панели не зависит.
+ */
+export class PanelErrorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  componentDidCatch(error: unknown) {
+    errorReported = true
+    send({ type: "error", message: error instanceof Error ? error.message : String(error) })
+  }
+
+  render() {
+    return this.state.failed ? this.props.fallback : this.props.children
+  }
+}
+
 function Panel() {
   const state = usePanel()
   const t = useStrings()
+
+  // панель нарисовалась: если до этого была ошибка, она больше не актуальна
+  useEffect(() => {
+    if (!errorReported) return
+    errorReported = false
+    send({ type: "error", message: "" })
+  }, [])
   const shown = useMemo(() => {
     const widgets = state.collapsed ? state.widgets.filter(isPinned) : state.widgets
     return state.claude ? [...widgets, CLAUDE] : widgets
@@ -160,7 +191,10 @@ export function PanelRoot({ state }: { state: PanelState }) {
         {state.bare ? (
           state.claude ? <ClaudeOnly /> : null
         ) : state.trusted === true ? (
-          <Panel />
+          // ключ: после исправления panel.json панель рисуется заново, а не остаётся в состоянии «ошибка»
+          <PanelErrorBoundary key={JSON.stringify(state.widgets)} fallback={state.claude ? <ClaudeOnly /> : null}>
+            <Panel />
+          </PanelErrorBoundary>
         ) : state.trusted === null ? (
           <TrustPrompt />
         ) : null}

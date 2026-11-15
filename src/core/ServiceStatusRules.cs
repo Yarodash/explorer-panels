@@ -27,6 +27,23 @@ public sealed record ServiceObservation(
 /// <summary>Единственное место, где решается, какой статус показать. Статус не должен врать.</summary>
 public static class ServiceStatusRules
 {
+    // программы, которые слушают порт от имени сервера, работающего в Docker или WSL
+    static readonly HashSet<string> PortForwarders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "wslrelay", "wslhost", "com.docker.backend", "docker-proxy", "vpnkit", "gvproxy",
+    };
+
+    /// <summary>
+    /// Слушает ли программа с таким именем порт «за другого». Порт сервера в Docker или WSL на самом деле
+    /// открывает их посредник; считать его посторонней программой, занявшей порт, нельзя.
+    /// </summary>
+    public static bool IsPortForwarder(string? processName)
+    {
+        if (string.IsNullOrEmpty(processName)) return false;
+        var name = processName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? processName[..^4] : processName;
+        return PortForwarders.Contains(name);
+    }
+
     /// <summary>
     /// Сколько ждать ответа после того, как команда-запускалка (например, <c>docker compose up -d</c>)
     /// успешно завершилась.

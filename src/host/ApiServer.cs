@@ -16,6 +16,7 @@ interface IHostApi
     ApiResult Set(string folder, JsonObject values);
     Task<ApiResult> Do(string folder, string action);
     ApiResult Reload(string folder);
+    Task<ApiResult> Screenshot(string folder, string file);
 }
 
 /// <summary>
@@ -125,6 +126,11 @@ sealed class ApiServer(IHostApi api, string hostInfoFile, int preferredPort = Ap
                     await Write(context, HttpStatusCode.OK, api.Reload(reload.Folder));
                     break;
 
+                case ("POST", "/v1/screenshot"):
+                    var shot = await Read<ScreenshotRequest>(request);
+                    await Write(context, HttpStatusCode.OK, await api.Screenshot(shot.Folder, shot.File));
+                    break;
+
                 default:
                     await Write(context, HttpStatusCode.NotFound, new ApiResult(false, $"unknown path {request.Url.AbsolutePath}"));
                     break;
@@ -203,6 +209,8 @@ sealed class HostApi(HostContext host) : IHostApi
         project.Reload();
         return new ApiResult(true);
     }
+
+    public Task<ApiResult> Screenshot(string folder, string file) => host.CaptureAsync(folder, file);
 
     static ApiResult NoPanel(string folder) => new(false, $"no {PanelLoader.DirName}/{PanelLoader.FileName} found for {folder}");
 }

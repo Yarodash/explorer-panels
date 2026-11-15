@@ -24,6 +24,8 @@ static class Commands
           do <action>              run an action from panel.json (or a built-in one, e.g. logs)
           set name=value ...       set values instantly (plain text or JSON)
           logs                     print the log file path and its last lines
+          screenshot [--out file]  save a picture of the panel as PNG and print its path
+                                   (the folder must be open in File Explorer)
 
           version                  print the version
           install | uninstall      start at sign-in and put 'explorer-panel' on PATH | undo that
@@ -117,6 +119,19 @@ static class Commands
                 return Ok;
             }
 
+            case "screenshot":
+            {
+                var given = TakeOption(ref args, "--out");
+                var folder = Folder(command, args, out _);
+                var file = ScreenshotFile(folder, given, Directory.GetCurrentDirectory());
+                using var host = Connect();
+                if (host == null) return HostMissing();
+                var result = host.ScreenshotAsync(folder, file).GetAwaiter().GetResult();
+                if (result.Ok) Console.WriteLine(file);
+                else Console.Error.WriteLine("failed: " + result.Error);
+                return result.Ok ? Ok : Failed;
+            }
+
             default:
                 return Wrong($"unknown command \"{command}\"\n\n{Usage}");
         }
@@ -186,6 +201,28 @@ static class Commands
             return Full(given);
         }
         return cwd;
+    }
+
+    /// <summary>Вынимает из аргументов ключ с его значением (<c>--out файл</c>); null, если ключа нет.</summary>
+    public static string? TakeOption(ref string[] args, string name)
+    {
+        int at = Array.IndexOf(args, name);
+        if (at < 0 || at + 1 >= args.Length) return null;
+        var value = args[at + 1];
+        args = [.. args[..at], .. args[(at + 2)..]];
+        return value;
+    }
+
+    /// <summary>
+    /// Куда сохранить снимок панели: в указанный файл; иначе — рядом с логами проекта (эта папка не попадает в git);
+    /// для папки без панели — во временную папку.
+    /// </summary>
+    public static string ScreenshotFile(string folder, string? given, string cwd)
+    {
+        if (given != null) return Path.GetFullPath(Path.Combine(cwd, given));
+        return ProjectLocator.FindRoot(folder) is { } root
+            ? Path.Combine(root, PanelLoader.DirName, "logs", "panel.png")
+            : Path.Combine(Path.GetTempPath(), "explorer-panel.png");
     }
 
     /// <summary>

@@ -140,6 +140,14 @@ sealed class FakeHostApi : IHostApi
     }
 
     public ApiResult Reload(string folder) => new(true);
+
+    public List<(string Folder, string File)> Shots { get; } = [];
+
+    public Task<ApiResult> Screenshot(string folder, string file)
+    {
+        Shots.Add((folder, file));
+        return Task.FromResult(new ApiResult(true));
+    }
 }
 
 public class ApiServerTests : IDisposable

@@ -57,6 +57,10 @@ public sealed class HostClient : IDisposable
     public Task<ApiResult> DoAsync(string folder, string action) => PostAsync("v1/do", new DoRequest(folder, action), Long);
     public Task<ApiResult> ReloadAsync(string folder) => PostAsync("v1/reload", new FolderRequest(folder), Quick);
 
+    /// <summary>Просит программу сохранить снимок панели этой папки в файл PNG.</summary>
+    public Task<ApiResult> ScreenshotAsync(string folder, string file) =>
+        PostAsync("v1/screenshot", new ScreenshotRequest(folder, file), TimeSpan.FromSeconds(30));
+
     async Task<T> GetAsync<T>(string path, TimeSpan timeout)
     {
         using var cancel = new CancellationTokenSource(timeout);

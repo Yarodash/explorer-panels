@@ -23,6 +23,9 @@ public sealed record FolderRequest(string Folder);
 public sealed record SetRequest(string Folder, JsonObject Values);
 public sealed record DoRequest(string Folder, string Action);
 
+/// <summary>Сохранить снимок панели папки в файл PNG.</summary>
+public sealed record ScreenshotRequest(string Folder, string File);
+
 /// <summary>Итог команды: удалось ли, и если нет — почему.</summary>
 public sealed record ApiResult(bool Ok, string? Error = null);
 

@@ -110,7 +110,16 @@ sealed class Project : IDisposable
                 _services[def.Name] = runner;
             }
         }
-        foreach (var removed in _services.Keys.Except(config.Services.Select(s => s.Name)).ToList()) _services.Remove(removed);
+        foreach (var removed in _services.Keys.Except(config.Services.Select(s => s.Name)).ToList())
+        {
+            // Сервер убрали или переименовали в panel.json. Панель его запустила — панель его и останавливает:
+            // иначе процесс остался бы работать, и остановить его из панели было бы уже нечем.
+            var runner = _services[removed];
+            _services.Remove(removed);
+            if (!runner.OwnAlive()) continue;
+            _log.Append(removed, "--- removed from panel.json; stopping");
+            _ = Task.Run(() => runner.StopAsync(ValueText));
+        }
 
         foreach (var value in config.Values)
         {
@@ -183,7 +192,7 @@ sealed class Project : IDisposable
                 ["root"] = Root,
                 ["locale"] = locale,
                 ["trusted"] = Trusted is { } trusted ? JsonValue.Create(trusted) : null,
-                ["collapsed"] = _state.Root["collapsed"]?.GetValue<bool>() ?? false,
+                ["collapsed"] = Collapsed,
                 ["problems"] = problems,
                 ["widgets"] = Config?.Widgets.DeepClone() ?? new JsonArray(),
                 ["services"] = services,
@@ -218,14 +227,12 @@ sealed class Project : IDisposable
         _values.Set(name, value, persist: stored);
     }
 
+    bool Collapsed => _state.Read(root => root["collapsed"]?.GetValue<bool>() ?? false);
+
     public void SetCollapsed(bool collapsed)
     {
-        lock (_gate)
-        {
-            if ((_state.Root["collapsed"]?.GetValue<bool>() ?? false) == collapsed) return;
-            _state.Root["collapsed"] = collapsed;
-            _state.Save();
-        }
+        if (Collapsed == collapsed) return;
+        _state.Update(root => root["collapsed"] = collapsed);
         RaiseChanged();
     }
 
@@ -326,9 +333,8 @@ sealed class Project : IDisposable
 
             if (def.Open is { } open)
             {
-                bool isUrl = Uri.TryCreate(open, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
-                var target = isUrl ? Template.FillUrl(open, Value) : Template.Fill(open, Value);
-                if (!isUrl && !Path.IsPathFullyQualified(target) && !target.Contains("://")) target = Path.GetFullPath(Path.Combine(Root, target));
+                if (!OpenTarget.TryResolve(open, Root, Value, out var target, out var refusal))
+                    return await Finish(action, new ApiResult(false, refusal));
                 _shell.Open(target);
                 return await Finish(action, new ApiResult(true));
             }
@@ -339,8 +345,8 @@ sealed class Project : IDisposable
             Prepare();
             var cwd = Path.GetFullPath(Path.Combine(Root, def.Cwd ?? "."));
             _log.Append(action, $"--- run: {command}  (in {cwd})");
-            var result = await CommandRunner.RunAsync(command, cwd, def.Env, ActionTimeout);
-            foreach (var line in result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)) _log.Append(action, line.TrimEnd('\r'));
+            // каждая строка вывода попадает в лог сразу: по долгому действию видно, что оно делает сейчас
+            var result = await CommandRunner.RunAsync(command, cwd, def.Env, ActionTimeout, line => _log.Append(action, line));
             _log.Append(action, $"--- finished with exit code {result.ExitCode}");
             return await Finish(action, result.ExitCode == 0 ? new ApiResult(true) : new ApiResult(false, $"exit code {result.ExitCode}; see the log: {LogFile}"));
         }

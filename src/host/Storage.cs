@@ -69,7 +69,7 @@ sealed class StateFile
     readonly string _file;
     readonly object _gate = new();
 
-    public JsonObject Root { get; }
+    JsonObject Root { get; }
 
     public StateFile(string file)
     {
@@ -86,17 +86,34 @@ sealed class StateFile
         Root = root ?? [];
     }
 
-    /// <summary>Раздел файла (объект с данным именем); создаётся при первом обращении.</summary>
-    public JsonObject Section(string name)
+    /// <summary>Читает что-нибудь из состояния. Возвращать нужно копию, а не часть самого состояния.</summary>
+    public T Read<T>(Func<JsonObject, T> read)
+    {
+        lock (_gate) return read(Root);
+    }
+
+    /// <summary>
+    /// Меняет состояние и сохраняет файл. Состояние меняют разные потоки (значения, свёрнутость панели,
+    /// запущенные процессы), поэтому изменение и запись идут под одним замком: иначе файл мог записываться
+    /// в тот момент, когда другой поток меняет состояние.
+    /// </summary>
+    public void Update(Action<JsonObject> change)
     {
         lock (_gate)
         {
-            if (Root[name] is not JsonObject section) Root[name] = section = [];
-            return section;
+            change(Root);
+            Save();
         }
     }
 
-    public void Save()
+    /// <summary>Раздел состояния (объект с данным именем); создаётся при первом обращении. Вызывать внутри Read или Update.</summary>
+    public static JsonObject Section(JsonObject root, string name)
+    {
+        if (root[name] is not JsonObject section) root[name] = section = [];
+        return section;
+    }
+
+    void Save()
     {
         try
         {
@@ -129,7 +146,11 @@ sealed class ValueStore
     public ValueStore(StateFile file)
     {
         _file = file;
-        foreach (var (name, value) in file.Section("values")) _values[name] = value?.DeepClone();
+        file.Read(root =>
+        {
+            foreach (var (name, value) in StateFile.Section(root, "values")) _values[name] = value?.DeepClone();
+            return 0;
+        });
     }
 
     public JsonNode? Get(string name)
@@ -155,11 +176,7 @@ sealed class ValueStore
         {
             if (_values.TryGetValue(name, out var old) && old?.ToJsonString() == value?.ToJsonString()) return;
             _values[name] = value?.DeepClone();
-            if (persist)
-            {
-                _file.Section("values")[name] = value?.DeepClone();
-                _file.Save();
-            }
+            if (persist) _file.Update(root => StateFile.Section(root, "values")[name] = value?.DeepClone());
         }
         Changed?.Invoke();
     }

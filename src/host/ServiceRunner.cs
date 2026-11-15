@@ -53,9 +53,10 @@ sealed class ServiceRunner
         _state = state;
 
         // сервер мог быть запущен панелью до перезапуска программы
-        if (state.Section("processes")[def.Name] is JsonObject saved
-            && saved["pid"]?.GetValue<int>() is { } pid && saved["started"]?.GetValue<long>() is { } started
-            && ProcessInfo.StartTime(pid)?.Ticks == started)
+        var (pid, started) = state.Read(root => StateFile.Section(root, "processes")[def.Name] is JsonObject saved
+            ? (saved["pid"]?.GetValue<int>() ?? 0, saved["started"]?.GetValue<long>() ?? 0)
+            : (0, 0L));
+        if (pid != 0 && ProcessInfo.StartTime(pid)?.Ticks == started)
         {
             _pid = pid;
             _pidStartTicks = started;
@@ -190,8 +191,7 @@ sealed class ServiceRunner
             if (Template.TryFillCommand(stop, values, out var command, out var error))
             {
                 _log.Append(Def.Name, "--- stop: " + command);
-                var result = await CommandRunner.RunAsync(command, Cwd, Def.Env, TimeSpan.FromMinutes(2)).ConfigureAwait(false);
-                foreach (var line in result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries)) _log.Append(Def.Name, line.TrimEnd());
+                await CommandRunner.RunAsync(command, Cwd, Def.Env, TimeSpan.FromMinutes(2), line => _log.Append(Def.Name, line)).ConfigureAwait(false);
             }
             else _log.Append(Def.Name, "--- cannot run the stop command: " + error);
         }
@@ -234,10 +234,14 @@ sealed class ServiceRunner
 
     void SaveTracked()
     {
-        var processes = _state.Section("processes");
-        if (_pid != 0) processes[Def.Name] = new JsonObject { ["pid"] = _pid, ["started"] = _pidStartTicks };
-        else processes.Remove(Def.Name);
-        _state.Save();
+        int pid = _pid;
+        long started = _pidStartTicks;
+        _state.Update(root =>
+        {
+            var processes = StateFile.Section(root, "processes");
+            if (pid != 0) processes[Def.Name] = new JsonObject { ["pid"] = pid, ["started"] = started };
+            else processes.Remove(Def.Name);
+        });
     }
 
     // ───────── наблюдение ─────────
@@ -352,7 +356,8 @@ sealed class ServiceRunner
         foreach (int pid in ProcessInfo.ListeningPids(uri.Port))
         {
             if (BelongsToProject(pid)) mine.Add(pid);
-            else foreign ??= pid;
+            // порт сервера в Docker или WSL слушает их посредник: это не посторонняя программа, занявшая порт
+            else if (!ServiceStatusRules.IsPortForwarder(ProcessInfo.Name(pid))) foreign ??= pid;
         }
         if (mine.Count > 0) return (PortOwner.Project, null, null, mine);
         if (foreign is { } foreignPid) return (PortOwner.Foreign, ProcessInfo.Name(foreignPid), foreignPid, []);
