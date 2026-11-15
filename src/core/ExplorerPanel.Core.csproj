@@ -7,4 +7,9 @@
     <RootNamespace>ExplorerPanel.Core</RootNamespace>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- список иконок lucide; обновляется скриптом src/ui/scripts/export-icons.mjs -->
+    <EmbeddedResource Include="Resources\lucide-icons.txt" LogicalName="lucide-icons.txt" />
+  </ItemGroup>
+
 </Project>
